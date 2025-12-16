@@ -1,0 +1,28 @@
+{
+  "name": "whatsapp-twilio",
+  "version": "1.0.0",
+  "description": "WhatsApp Web clone using Twilio",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@tailwindcss/postcss": "^4.1.17",
+    "@types/node": "^24.10.2",
+    "@types/react": "^19.2.7",
+    "@types/react-dom": "^19.2.3",
+    "autoprefixer": "^10.4.22",
+    "date-fns": "^4.1.0",
+    "lucide-react": "^0.557.0",
+    "next": "^16.0.8",
+    "postcss": "^8.5.6",
+    "react": "^19.2.1",
+    "react-dom": "^19.2.1",
+    "server-only": "^0.0.1",
+    "tailwindcss": "^4.1.17",
+    "twilio": "^5.10.7",
+    "typescript": "^5.9.3"
+  }
+}
