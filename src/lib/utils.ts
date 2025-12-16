@@ -1,11 +1,11 @@
 // Client-safe utility functions (no Twilio SDK dependency)
 
 export function formatPhoneNumber(phoneNumber: string): string {
-  // Remove whatsapp: prefix if present
-  const cleaned = phoneNumber.replace('whatsapp:', '');
+  // Remove whatsapp: prefix and any existing + if present
+  const cleaned = phoneNumber.replace('whatsapp:', '').replace('+', '');
   // Format for display
   if (cleaned.length > 10) {
-    return `+${cleaned.slice(0, -10)} ${cleaned.slice(-10, -7)} ${cleaned.slice(-7, -4)} ${cleaned.slice(-4)}`;
+    return `${cleaned.slice(0, -10)} ${cleaned.slice(-10, -7)} ${cleaned.slice(-7, -4)} ${cleaned.slice(-4)}`;
   }
   return cleaned;
 }

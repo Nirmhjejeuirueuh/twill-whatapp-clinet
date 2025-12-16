@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
     messageStore.setWhatsappNumber(whatsappNumber);
 
     console.log('Calling Twilio API...');
-    const messages = await fetchMessages(accountSid, authToken, 200);
+    const messages = await fetchMessages(accountSid, authToken, whatsappNumber, 200);
 
     // Store messages
     messageStore.addMessages(messages);

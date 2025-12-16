@@ -22,7 +22,7 @@ export default function NewChatModal({
   const handleStartChat = () => {
     if (phoneNumber.trim()) {
       // Format the phone number
-      let formatted = phoneNumber.trim();
+      let formatted = phoneNumber.trim().replace(/\s/g, '');
       if (!formatted.startsWith('+')) {
         formatted = '+' + formatted;
       }

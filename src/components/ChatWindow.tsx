@@ -50,12 +50,14 @@ export default function ChatWindow({
   const handleSend = async () => {
     if (!message.trim() || sending) return;
 
+    console.log('📝 ChatWindow handleSend called with message:', message.trim());
+
     setSending(true);
     try {
       await onSendMessage(message.trim());
       setMessage('');
     } catch (error) {
-      console.error('Failed to send message:', error);
+      console.error('❌ Error in ChatWindow handleSend:', error);
     } finally {
       setSending(false);
       inputRef.current?.focus();
@@ -129,20 +131,20 @@ export default function ChatWindow({
   });
 
   return (
-    <div className="flex-1 flex flex-col bg-[#0b141a] h-full">
+    <div className="flex-1 flex flex-col bg-[#0b141a] h-full min-w-0">
       {/* Header */}
-      <div className="h-[60px] px-4 flex items-center justify-between bg-[#202c33] flex-shrink-0">
-        <div className="flex items-center gap-3">
-          <div className={`w-10 h-10 rounded-full flex items-center justify-center ${getAvatarColor(conversation.phoneNumber)}`}>
+      <div className="h-[60px] px-4 flex items-center justify-between bg-[#202c33] border-b border-[#2a3942] flex-shrink-0">
+        <div className="flex items-center gap-3 min-w-0 flex-1">
+          <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${getAvatarColor(conversation.phoneNumber)}`}>
             <span className="text-white font-medium">
               {getInitials(conversation.phoneNumber)}
             </span>
           </div>
-          <div>
-            <h2 className="text-[#e9edef] font-normal">
+          <div className="min-w-0 flex-1">
+            <h2 className="text-[#e9edef] font-medium truncate">
               {conversation.profileName || formatPhoneNumber(conversation.phoneNumber)}
             </h2>
-            <p className="text-xs text-[#8696a0]">
+            <p className="text-xs text-[#8696a0] truncate">
               {conversation.isOnline
                 ? 'online'
                 : conversation.lastSeen
@@ -151,7 +153,7 @@ export default function ChatWindow({
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 flex-shrink-0">
           <button className="p-2 hover:bg-[#2a3942] rounded-full transition-colors">
             <Video className="w-5 h-5 text-[#aebac1]" />
           </button>
@@ -168,12 +170,12 @@ export default function ChatWindow({
       </div>
 
       {/* Messages Area */}
-      <div className="flex-1 overflow-y-auto chat-pattern px-[60px] py-4">
+      <div className="flex-1 overflow-y-auto chat-pattern px-4 sm:px-8 lg:px-16 py-4 space-y-4">
         {groupedMessages.map((group, groupIndex) => (
           <div key={groupIndex}>
             {/* Date Header */}
-            <div className="flex justify-center my-4">
-              <span className="bg-[#182229] text-[#8696a0] text-xs px-3 py-1 rounded-lg shadow-sm">
+            <div className="flex justify-center my-6">
+              <span className="bg-[#182229] text-[#8696a0] text-xs px-4 py-2 rounded-full shadow-sm border border-[#2a3942]">
                 {formatDateHeader(group.date)}
               </span>
             </div>
@@ -187,15 +189,15 @@ export default function ChatWindow({
               return (
                 <div
                   key={msg.sid}
-                  className={`flex mb-1 message-appear ${
+                  className={`flex mb-2 message-appear ${
                     isOutbound ? 'justify-end' : 'justify-start'
                   }`}
                 >
                   <div
-                    className={`relative max-w-[65%] px-3 py-2 rounded-lg shadow-sm ${
+                    className={`relative max-w-[75%] sm:max-w-[65%] px-4 py-3 rounded-2xl shadow-sm ${
                       isOutbound
-                        ? `bg-[#005c4b] ${showTail ? 'message-out' : ''}`
-                        : `bg-[#202c33] ${showTail ? 'message-in' : ''}`
+                        ? `bg-[#005c4b] text-[#e9edef] ${showTail ? 'message-out' : ''}`
+                        : `bg-[#202c33] text-[#e9edef] ${showTail ? 'message-in' : ''}`
                     }`}
                   >
                     {/* Media Content */}

@@ -17,6 +17,7 @@ interface TwilioConfig {
 }
 
 const STORAGE_KEY = 'twilio_config';
+const CONVERSATIONS_KEY = 'whatsapp_conversations';
 
 export default function WhatsAppClient() {
   const [config, setConfig] = useState<TwilioConfig>({
@@ -43,8 +44,27 @@ export default function WhatsAppClient() {
         console.error('Failed to parse saved config:', e);
       }
     }
+
+    // Load conversations from localStorage
+    const savedConversations = localStorage.getItem(CONVERSATIONS_KEY);
+    if (savedConversations) {
+      try {
+        const parsed = JSON.parse(savedConversations);
+        setConversations(parsed);
+      } catch (e) {
+        console.error('Failed to parse saved conversations:', e);
+      }
+    }
+
     setLoading(false);
   }, []);
+
+  // Save conversations to localStorage whenever they change
+  useEffect(() => {
+    if (!loading) {
+      localStorage.setItem(CONVERSATIONS_KEY, JSON.stringify(conversations));
+    }
+  }, [conversations, loading]);
 
   // Save config to localStorage
   const handleSaveConfig = (newConfig: TwilioConfig) => {
@@ -73,7 +93,27 @@ export default function WhatsAppClient() {
       const result = await response.json();
 
       if (result.success) {
-        setConversations(result.data.conversations);
+        console.log('📥 Fetched messages:');
+        console.log('  Total conversations:', result.data.conversations.length);
+        console.log('  Total messages:', result.data.messages.length);
+        result.data.conversations.forEach((conv, i) => {
+          console.log(`  Conversation ${i+1}: ${conv.phoneNumber} (${conv.messages.length} messages)`);
+        });
+
+        // Merge fetched conversations with existing ones
+        setConversations(prev => {
+          const merged = [...prev];
+          result.data.conversations.forEach(fetched => {
+            const existingIndex = merged.findIndex(c => c.phoneNumber === fetched.phoneNumber);
+            if (existingIndex >= 0) {
+              merged[existingIndex] = fetched; // update with latest messages
+            } else {
+              merged.push(fetched); // add new conversation with messages
+            }
+          });
+          return merged;
+        });
+
         setIsConnected(true);
         setError(null);
 
@@ -102,14 +142,20 @@ export default function WhatsAppClient() {
   useEffect(() => {
     if (config.accountSid && config.authToken && config.whatsappNumber) {
       fetchMessages();
-      const interval = setInterval(() => fetchMessages(), 5000);
+      const interval = setInterval(() => fetchMessages(), 10000);
       return () => clearInterval(interval);
     }
   }, [config.accountSid, config.authToken, config.whatsappNumber, fetchMessages]);
 
   // Send message
   const handleSendMessage = async (body: string) => {
-    if (!selectedConversation) return;
+    if (!selectedConversation) {
+      console.error('❌ No conversation selected');
+      return;
+    }
+
+    console.log('💬 Sending message to:', selectedConversation.phoneNumber);
+    console.log('  Message body:', body);
 
     try {
       const response = await fetch('/api/send', {
@@ -128,13 +174,36 @@ export default function WhatsAppClient() {
       const result = await response.json();
 
       if (!result.success) {
+        console.error('❌ Send failed:', result.error);
         throw new Error(result.error);
       }
 
-      // Refresh messages after sending
-      await fetchMessages();
+      console.log('✅ Message sent successfully, adding to conversation...');
+
+      // Add the sent message to the conversation immediately
+      const sentMessage = result.data;
+      setConversations(prev => prev.map(conv => {
+        if (conv.phoneNumber === selectedConversation.phoneNumber) {
+          return {
+            ...conv,
+            messages: [...conv.messages, sentMessage],
+            lastMessage: sentMessage,
+          };
+        }
+        return conv;
+      }));
+
+      // Update selected conversation
+      setSelectedConversation(prev => prev ? {
+        ...prev,
+        messages: [...prev.messages, sentMessage],
+        lastMessage: sentMessage,
+      } : null);
+
+      // Refresh messages in background
+      fetchMessages();
     } catch (err) {
-      console.error('Failed to send message:', err);
+      console.error('❌ Failed to send message:', err);
       throw err;
     }
   };

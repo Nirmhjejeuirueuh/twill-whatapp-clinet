@@ -32,24 +32,25 @@ export function resetTwilioClient(): void {
 export async function fetchMessages(
   accountSid?: string,
   authToken?: string,
+  whatsappNumber?: string,
   limit: number = 100
 ): Promise<Message[]> {
   const client = getTwilioClient(accountSid, authToken);
-  const whatsappNumber = process.env.TWILIO_WHATSAPP_NUMBER;
+  const ourNumber = whatsappNumber || process.env.TWILIO_WHATSAPP_NUMBER;
 
-  if (!whatsappNumber) {
+  if (!ourNumber) {
     throw new Error('WhatsApp number not configured');
   }
 
   console.log('🔍 Fetching messages from Twilio...');
-  console.log('   WhatsApp Number:', whatsappNumber);
+  console.log('   WhatsApp Number:', ourNumber);
   console.log('   Using AccountSID:', accountSid?.substring(0, 10) || 'from env');
 
   try {
     // Fetch messages sent to our number
     console.log('   → Fetching inbound messages...');
     const inboundMessages = await client.messages.list({
-      to: `whatsapp:${whatsappNumber}`,
+      to: `whatsapp:${ourNumber}`,
       limit,
     });
     console.log(`   ✓ Found ${inboundMessages.length} inbound messages`);
@@ -57,7 +58,7 @@ export async function fetchMessages(
     // Fetch messages sent from our number
     console.log('   → Fetching outbound messages...');
     const outboundMessages = await client.messages.list({
-      from: `whatsapp:${whatsappNumber}`,
+      from: `whatsapp:${ourNumber}`,
       limit,
     });
     console.log(`   ✓ Found ${outboundMessages.length} outbound messages`);
@@ -161,6 +162,11 @@ export async function sendWhatsAppMessage(
   const formattedTo = to.startsWith('whatsapp:') ? to : `whatsapp:${to}`;
   const formattedFrom = `whatsapp:${whatsappNumber}`;
 
+  console.log('🚀 Sending WhatsApp message:');
+  console.log('  From:', formattedFrom);
+  console.log('  To:', formattedTo);
+  console.log('  Body:', body);
+
   try {
     const messageOptions: {
       from: string;
@@ -179,6 +185,11 @@ export async function sendWhatsAppMessage(
 
     const sentMessage = await client.messages.create(messageOptions);
 
+    console.log('📨 Twilio response:');
+    console.log('  SID:', sentMessage.sid);
+    console.log('  Status:', sentMessage.status);
+    console.log('  Direction:', sentMessage.direction);
+
     return {
       sid: sentMessage.sid,
       body: sentMessage.body || body,
@@ -190,19 +201,10 @@ export async function sendWhatsAppMessage(
       dateSent: sentMessage.dateSent?.toISOString() || null,
     };
   } catch (error) {
-    console.error('Error sending message:', error);
+    console.error('❌ Error sending message:');
+    console.error('  Error:', error);
     throw error;
   }
-}
-
-export function formatPhoneNumber(phoneNumber: string): string {
-  // Remove whatsapp: prefix if present
-  const cleaned = phoneNumber.replace('whatsapp:', '');
-  // Format for display
-  if (cleaned.length > 10) {
-    return `+${cleaned.slice(0, -10)} ${cleaned.slice(-10, -7)} ${cleaned.slice(-7, -4)} ${cleaned.slice(-4)}`;
-  }
-  return cleaned;
 }
 
 export function getInitials(phoneNumber: string): string {
