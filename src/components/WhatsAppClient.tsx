@@ -50,9 +50,23 @@ export default function WhatsAppClient() {
     if (savedConversations) {
       try {
         const parsed = JSON.parse(savedConversations);
-        setConversations(parsed);
+        // Filter out conversations without phone numbers (invalid data)
+        const validConversations = parsed.filter((c: Conversation) => c.phoneNumber && c.phoneNumber.trim() !== '');
+
+        console.log('📦 Loaded conversations from localStorage:', parsed.length);
+        console.log('✅ Valid conversations (with phone number):', validConversations.length);
+        console.log('❌ Removed invalid conversations:', parsed.length - validConversations.length);
+
+        setConversations(validConversations);
+
+        // If we removed any invalid conversations, clear them from localStorage
+        if (validConversations.length < parsed.length) {
+          localStorage.setItem(CONVERSATIONS_KEY, JSON.stringify(validConversations));
+        }
       } catch (e) {
         console.error('Failed to parse saved conversations:', e);
+        // Clear corrupted data
+        localStorage.removeItem(CONVERSATIONS_KEY);
       }
     }
 
@@ -60,9 +74,35 @@ export default function WhatsAppClient() {
   }, []);
 
   // Save conversations to localStorage whenever they change
+  // Only save conversations with valid phone numbers
   useEffect(() => {
     if (!loading) {
-      localStorage.setItem(CONVERSATIONS_KEY, JSON.stringify(conversations));
+      const validConversations = conversations.filter(c => c.phoneNumber && c.phoneNumber.trim() !== '');
+
+      try {
+        localStorage.setItem(CONVERSATIONS_KEY, JSON.stringify(validConversations));
+      } catch (error) {
+        if (error instanceof DOMException && error.name === 'QuotaExceededError') {
+          console.warn('⚠️ localStorage quota exceeded. Clearing old conversations to free up space.');
+          // Clear localStorage and try again with just the most recent conversations
+          localStorage.removeItem(CONVERSATIONS_KEY);
+
+          // Keep only conversations with recent messages
+          const recentConversations = validConversations
+            .filter(c => c.messages.length > 0)
+            .sort((a, b) => new Date(b.date_updated).getTime() - new Date(a.date_updated).getTime())
+            .slice(0, 10); // Keep only 10 most recent conversations
+
+          try {
+            localStorage.setItem(CONVERSATIONS_KEY, JSON.stringify(recentConversations));
+            console.log('✅ Saved recent conversations to localStorage');
+          } catch (retryError) {
+            console.error('❌ Still unable to save to localStorage after cleanup');
+          }
+        } else {
+          console.error('❌ Error saving conversations to localStorage:', error);
+        }
+      }
     }
   }, [conversations, loading]);
 
@@ -93,36 +133,49 @@ export default function WhatsAppClient() {
       const result = await response.json();
 
       if (result.success) {
-        console.log('📥 Fetched messages:');
+        console.log('📥 Fetched conversations (Messaging API):');
         console.log('  Total conversations:', result.data.conversations.length);
-        console.log('  Total messages:', result.data.messages.length);
-        result.data.conversations.forEach((conv, i) => {
+        const totalMessages = result.data.conversations.reduce((sum: number, c: Conversation) => sum + c.messages.length, 0);
+        console.log('  Total messages:', totalMessages);
+        result.data.conversations.forEach((conv: Conversation, i: number) => {
           console.log(`  Conversation ${i+1}: ${conv.phoneNumber} (${conv.messages.length} messages)`);
         });
 
         // Merge fetched conversations with existing ones
-        setConversations(prev => {
-          const merged = [...prev];
-          result.data.conversations.forEach(fetched => {
-            const existingIndex = merged.findIndex(c => c.phoneNumber === fetched.phoneNumber);
-            if (existingIndex >= 0) {
-              merged[existingIndex] = fetched; // update with latest messages
-            } else {
-              merged.push(fetched); // add new conversation with messages
-            }
-          });
-          return merged;
+        const merged: Conversation[] = [];
+        const conversationsMap = new Map<string, Conversation>();
+        
+        // First, add all existing conversations to the map
+        conversations.forEach((conv: Conversation) => {
+          conversationsMap.set(conv.phoneNumber, conv);
         });
+        
+        // Then update/add fetched conversations
+        result.data.conversations.forEach((fetched: Conversation) => {
+          conversationsMap.set(fetched.phoneNumber, fetched);
+        });
+        
+        // Convert map back to array
+        conversationsMap.forEach(conv => merged.push(conv));
 
+        // Debug: Log all conversation SIDs
+        console.log('📋 Current conversations:', merged.map(c => ({
+          sid: c.sid,
+          phoneNumber: c.phoneNumber,
+          messageCount: c.messages.length
+        })));
+
+        setConversations(merged);
         setIsConnected(true);
         setError(null);
 
-        // Update selected conversation if it exists
+        // Update selected conversation if it exists - use the same conversation object from merged array
         if (selectedConversation) {
-          const updated = result.data.conversations.find(
+          const updated = merged.find(
             (c: Conversation) => c.phoneNumber === selectedConversation.phoneNumber
           );
           if (updated) {
+            console.log('🔄 Updating selected conversation with', updated.messages.length, 'messages');
             setSelectedConversation(updated);
           }
         }
@@ -136,16 +189,29 @@ export default function WhatsAppClient() {
     } finally {
       setLoading(false);
     }
-  }, [config, selectedConversation]);
+  }, [config]);
+
+  // Auto-update selected conversation when conversations change
+  useEffect(() => {
+    if (selectedConversation) {
+      const updated = conversations.find(
+        (c: Conversation) => c.phoneNumber === selectedConversation.phoneNumber
+      );
+      if (updated && updated.messages.length !== selectedConversation.messages.length) {
+        console.log('🔄 Auto-updating selected conversation from', selectedConversation.messages.length, 'to', updated.messages.length, 'messages');
+        setSelectedConversation(updated);
+      }
+    }
+  }, [conversations, selectedConversation]);
 
   // Initial fetch and polling
   useEffect(() => {
     if (config.accountSid && config.authToken && config.whatsappNumber) {
       fetchMessages();
-      const interval = setInterval(() => fetchMessages(), 10000);
+      const interval = setInterval(() => fetchMessages(), 2000); // 2 seconds for real-time updates
       return () => clearInterval(interval);
     }
-  }, [config.accountSid, config.authToken, config.whatsappNumber, fetchMessages]);
+  }, [config.accountSid, config.authToken, config.whatsappNumber]);
 
   // Send message
   const handleSendMessage = async (body: string) => {
@@ -168,6 +234,7 @@ export default function WhatsAppClient() {
           body,
           accountSid: config.accountSid,
           authToken: config.authToken,
+          whatsappNumber: config.whatsappNumber,
         }),
       });
 
@@ -179,26 +246,41 @@ export default function WhatsAppClient() {
       }
 
       console.log('✅ Message sent successfully, adding to conversation...');
+      console.log('  Sent message data:', result.data);
 
       // Add the sent message to the conversation immediately
       const sentMessage = result.data;
-      setConversations(prev => prev.map(conv => {
-        if (conv.phoneNumber === selectedConversation.phoneNumber) {
+      console.log('  Current conversations count:', conversations.length);
+      console.log('  Selected conversation:', selectedConversation.phoneNumber);
+
+      setConversations(prev => {
+        const updated = prev.map(conv => {
+          if (conv.phoneNumber === selectedConversation.phoneNumber) {
+            console.log('  ✓ Found matching conversation, adding message');
+            return {
+              ...conv,
+              messages: [...conv.messages, sentMessage],
+              lastMessage: sentMessage,
+            };
+          }
+          return conv;
+        });
+        console.log('  Updated conversations:', updated);
+        return updated;
+      });
+
+      // Update selected conversation
+      setSelectedConversation(prev => {
+        if (prev) {
+          console.log('  ✓ Updating selected conversation with new message');
           return {
-            ...conv,
-            messages: [...conv.messages, sentMessage],
+            ...prev,
+            messages: [...prev.messages, sentMessage],
             lastMessage: sentMessage,
           };
         }
-        return conv;
-      }));
-
-      // Update selected conversation
-      setSelectedConversation(prev => prev ? {
-        ...prev,
-        messages: [...prev.messages, sentMessage],
-        lastMessage: sentMessage,
-      } : null);
+        return null;
+      });
 
       // Refresh messages in background
       fetchMessages();
@@ -216,28 +298,70 @@ export default function WhatsAppClient() {
 
     // Check if conversation already exists
     const existing = conversations.find(c => c.phoneNumber === formattedNumber);
-    
+
     if (existing) {
       setSelectedConversation(existing);
     } else {
       // Create new conversation placeholder
       const newConversation: Conversation = {
+        sid: '', // No SID needed for Messaging API
+        account_sid: '',
+        chat_service_sid: '',
+        friendly_name: formattedNumber,
         phoneNumber: formattedNumber,
-        lastMessage: {
-          sid: 'temp',
-          body: '',
-          from: `whatsapp:${config.whatsappNumber}`,
-          to: formattedNumber,
-          direction: 'outbound',
-          status: 'sent',
-          dateCreated: new Date().toISOString(),
-          dateSent: null,
-        },
         messages: [],
         unreadCount: 0,
+        state: 'active',
+        date_created: new Date().toISOString(),
+        date_updated: new Date().toISOString(),
       };
       setConversations(prev => [newConversation, ...prev]);
       setSelectedConversation(newConversation);
+    }
+  };
+
+  // Delete conversation
+  const handleDeleteConversation = async (conversationSid: string) => {
+    console.log('🗑️ Attempting to delete conversation with SID:', conversationSid);
+
+    // Validate SID before sending
+    if (!conversationSid || conversationSid === 'temp-conv' || conversationSid === '') {
+      console.error('Invalid conversation SID:', conversationSid);
+      alert('Cannot delete this conversation: Invalid conversation ID');
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/delete-conversation', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          conversationSid,
+          accountSid: config.accountSid,
+          authToken: config.authToken,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        console.log('✅ Conversation deleted successfully');
+        // Remove from local state
+        setConversations(prev => prev.filter(c => c.sid !== conversationSid));
+
+        // If this was the selected conversation, clear selection
+        if (selectedConversation?.sid === conversationSid) {
+          setSelectedConversation(null);
+        }
+      } else {
+        console.error('Failed to delete conversation:', result.error);
+        alert('Failed to delete conversation: ' + result.error);
+      }
+    } catch (error) {
+      console.error('Error deleting conversation:', error);
+      alert('Failed to delete conversation');
     }
   };
 
@@ -267,6 +391,7 @@ export default function WhatsAppClient() {
           selectedConversation={selectedConversation}
           onSelectConversation={setSelectedConversation}
           onOpenSettings={() => setSettingsOpen(true)}
+          onDeleteConversation={handleDeleteConversation}
           whatsappNumber={config.whatsappNumber}
         />
 
@@ -285,9 +410,9 @@ export default function WhatsAppClient() {
       {/* New Chat FAB */}
       <button
         onClick={() => setNewChatOpen(true)}
-        className="fixed bottom-6 right-6 w-14 h-14 bg-[#00a884] rounded-full flex items-center justify-center shadow-lg hover:bg-[#00a884]/90 transition-colors z-40"
+        className="fixed bottom-6 right-6 md:bottom-8 md:right-8 w-14 h-14 md:w-16 md:h-16 bg-[#00a884] rounded-full flex items-center justify-center shadow-2xl hover:bg-[#00a884]/90 hover:scale-105 transition-all duration-200 z-40"
       >
-        <Plus className="w-6 h-6 text-white" />
+        <Plus className="w-6 h-6 md:w-7 md:h-7 text-white" />
       </button>
 
       {/* Settings Modal */}

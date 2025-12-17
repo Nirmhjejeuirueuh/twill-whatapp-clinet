@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { fetchMessages, groupMessagesIntoConversations } from '@/lib/twilio';
 import { messageStore } from '@/lib/store';
+import { ApiResponse, Conversation } from '@/types';
 
 export async function GET(request: NextRequest) {
-  console.log('\n📞 API /api/messages called');
+  console.log('\n📞 API /api/messages called (Messaging API)');
 
   try {
     const searchParams = request.nextUrl.searchParams;
@@ -18,38 +19,47 @@ export async function GET(request: NextRequest) {
 
     if (!accountSid || !authToken || !whatsappNumber) {
       console.error('❌ Missing credentials!');
-      return NextResponse.json(
+      return NextResponse.json<ApiResponse<null>>(
         { success: false, error: 'Missing Twilio credentials' },
         { status: 400 }
       );
     }
 
-    // Set the whatsapp number in the store
-    messageStore.setWhatsappNumber(whatsappNumber);
+    console.log('Fetching messages from Twilio Messaging API...');
+    const twilioMessages = await fetchMessages(accountSid, authToken, whatsappNumber, 100);
 
-    console.log('Calling Twilio API...');
-    const messages = await fetchMessages(accountSid, authToken, whatsappNumber, 200);
+    // Get messages from webhook store and merge
+    const storeMessages = messageStore.getMessages();
+    console.log(`📦 Merging ${storeMessages.length} messages from store`);
 
-    // Store messages
-    messageStore.addMessages(messages);
+    // Merge messages, avoiding duplicates by sid
+    const allMessages = [...twilioMessages];
+    const existingSids = new Set(twilioMessages.map(m => m.sid));
+
+    for (const storeMsg of storeMessages) {
+      if (!existingSids.has(storeMsg.sid)) {
+        allMessages.push(storeMsg);
+        console.log('➕ Added message from store:', storeMsg.sid);
+      }
+    }
 
     const conversations = groupMessagesIntoConversations(
-      messages,
+      allMessages,
       whatsappNumber
     );
 
     console.log(`✅ API response: ${conversations.length} conversations\n`);
-    return NextResponse.json({
+    return NextResponse.json<ApiResponse<{ conversations: Conversation[]; messages: any[]; whatsappNumber: string }>>({
       success: true,
       data: {
-        messages,
         conversations,
-        whatsappNumber: `whatsapp:${whatsappNumber}`,
+        messages: allMessages,
+        whatsappNumber: whatsappNumber.startsWith('whatsapp:') ? whatsappNumber : `whatsapp:${whatsappNumber}`,
       },
     });
   } catch (error) {
     console.error('❌ API Error:', error);
-    return NextResponse.json(
+    return NextResponse.json<ApiResponse<null>>(
       {
         success: false,
         error: error instanceof Error ? error.message : 'Failed to fetch messages',

@@ -23,22 +23,24 @@ export default function ConnectionStatus({
     <div className="fixed top-0 left-0 right-0 z-50">
       {/* Loading State */}
       {isLoading && (
-        <div className="bg-[#00a884] text-white px-4 py-2 flex items-center justify-center gap-2">
-          <RefreshCw className="w-4 h-4 animate-spin" />
-          <span className="text-sm">Connecting to Twilio...</span>
+        <div className="bg-[#00a884] text-white px-5 md:px-6 py-3 md:py-3.5 flex items-center justify-center gap-3">
+          <RefreshCw className="w-5 h-5 animate-spin" />
+          <span className="text-sm md:text-base">Connecting to Twilio...</span>
         </div>
       )}
 
       {/* Not Connected State */}
       {!isLoading && !isConnected && !error && (
-        <div className="bg-yellow-600 text-white px-4 py-2 flex items-center justify-center gap-2">
-          <WifiOff className="w-4 h-4" />
-          <span className="text-sm">Not connected. Please configure your Twilio credentials.</span>
+        <div className="bg-yellow-600 text-white px-5 md:px-6 py-3 md:py-3.5 flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-4">
+          <div className="flex items-center gap-2">
+            <WifiOff className="w-5 h-5" />
+            <span className="text-sm md:text-base">Not connected. Please configure your Twilio credentials.</span>
+          </div>
           <button
             onClick={onOpenSettings}
-            className="ml-2 px-3 py-1 bg-white/20 rounded hover:bg-white/30 transition-colors text-sm"
+            className="px-4 md:px-5 py-2 bg-white/20 rounded-lg hover:bg-white/30 transition-colors text-sm md:text-base flex items-center gap-2"
           >
-            <Settings className="w-4 h-4 inline mr-1" />
+            <Settings className="w-4 h-4 md:w-5 md:h-5" />
             Settings
           </button>
         </div>
@@ -46,24 +48,24 @@ export default function ConnectionStatus({
 
       {/* Error State */}
       {error && (
-        <div className="bg-red-600 text-white px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <WifiOff className="w-4 h-4" />
-            <span className="text-sm">{error}</span>
+        <div className="bg-red-600 text-white px-5 md:px-6 py-3 md:py-4 flex flex-col sm:flex-row items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <WifiOff className="w-5 h-5 flex-shrink-0" />
+            <span className="text-sm md:text-base">{error}</span>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
             <button
               onClick={onRefresh}
-              className="px-3 py-1 bg-white/20 rounded hover:bg-white/30 transition-colors text-sm flex items-center gap-1"
+              className="px-4 md:px-5 py-2 bg-white/20 rounded-lg hover:bg-white/30 transition-colors text-sm md:text-base flex items-center gap-2"
             >
-              <RefreshCw className="w-4 h-4" />
+              <RefreshCw className="w-4 h-4 md:w-5 md:h-5" />
               Retry
             </button>
             <button
               onClick={onOpenSettings}
-              className="px-3 py-1 bg-white/20 rounded hover:bg-white/30 transition-colors text-sm flex items-center gap-1"
+              className="px-4 md:px-5 py-2 bg-white/20 rounded-lg hover:bg-white/30 transition-colors text-sm md:text-base flex items-center gap-2"
             >
-              <Settings className="w-4 h-4" />
+              <Settings className="w-4 h-4 md:w-5 md:h-5" />
               Settings
             </button>
           </div>

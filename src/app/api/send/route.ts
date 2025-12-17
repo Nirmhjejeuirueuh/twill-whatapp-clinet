@@ -1,55 +1,66 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { sendWhatsAppMessage } from '@/lib/twilio';
-import { messageStore } from '@/lib/store';
-import { SendMessageRequest } from '@/types';
+import { sendMessage } from '@/lib/twilio';
+import { SendMessageRequest, ApiResponse, Message } from '@/types';
 
 export async function POST(request: NextRequest) {
-  console.log('\n📤 API /api/send called');
+  console.log('\n📤 API /api/send called (Messaging API)');
 
   try {
     const body: SendMessageRequest & {
       accountSid?: string;
       authToken?: string;
+      whatsappNumber?: string;
     } = await request.json();
 
-    const { to, body: messageBody, mediaUrl, accountSid, authToken } = body;
+    const { to, body: messageBody, mediaUrl, accountSid, authToken, whatsappNumber } = body;
+    const ourNumber = whatsappNumber || process.env.TWILIO_WHATSAPP_NUMBER;
 
     console.log('Send request data:');
     console.log('  To:', to);
     console.log('  Body:', messageBody);
-    console.log('  AccountSID:', accountSid ? `${accountSid.substring(0, 10)}...` : 'MISSING');
-    console.log('  AuthToken:', authToken ? 'Present' : 'MISSING');
+    console.log('  From (our number):', ourNumber);
+    console.log('  AccountSID:', accountSid ? `${accountSid.substring(0, 10)}...` : 'from env');
+    console.log('  AuthToken:', authToken ? 'Present' : 'from env');
 
     if (!to || !messageBody) {
       console.error('❌ Missing required fields: to and body');
-      return NextResponse.json(
+      return NextResponse.json<ApiResponse<null>>(
         { success: false, error: 'Missing required fields: to and body' },
         { status: 400 }
       );
     }
 
-    const message = await sendWhatsAppMessage(
-      to,
+    if (!ourNumber) {
+      console.error('❌ Missing WhatsApp number');
+      return NextResponse.json<ApiResponse<null>>(
+        { success: false, error: 'WhatsApp number not configured' },
+        { status: 400 }
+      );
+    }
+
+    // Format numbers for WhatsApp
+    const formattedTo = to.startsWith('whatsapp:') ? to : `whatsapp:${to}`;
+    const formattedFrom = ourNumber.startsWith('whatsapp:') ? ourNumber : `whatsapp:${ourNumber}`;
+
+    console.log('→ Sending message via Messaging API...');
+    const message = await sendMessage(
+      formattedTo,
       messageBody,
-      mediaUrl,
+      formattedFrom,
       accountSid,
       authToken
     );
 
     console.log('✅ Message sent successfully:');
     console.log('  SID:', message.sid);
-    console.log('  Status:', message.status);
 
-    // Add to store
-    messageStore.addMessage(message);
-
-    return NextResponse.json({
+    return NextResponse.json<ApiResponse<Message>>({
       success: true,
       data: message,
     });
   } catch (error) {
-    console.error('Error sending message:', error);
-    return NextResponse.json(
+    console.error('❌ Error sending message:', error);
+    return NextResponse.json<ApiResponse<null>>(
       {
         success: false,
         error: error instanceof Error ? error.message : 'Failed to send message',

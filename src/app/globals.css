@@ -32,9 +32,28 @@
 }
 
 * {
-  margin: 0;
-  padding: 0;
   box-sizing: border-box;
+}
+
+@layer base {
+  /* Reset margins and paddings on specific elements only */
+  body, h1, h2, h3, h4, h5, h6, p, ul, ol, li {
+    margin: 0;
+    padding: 0;
+  }
+
+  /* Reset button styles */
+  button {
+    margin: 0;
+    padding: 0;
+    border: none;
+    font: inherit;
+    line-height: 1;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+    cursor: pointer;
+  }
 }
 
 body {
@@ -61,8 +80,8 @@ body {
   background: var(--wa-text-secondary);
 }
 
-/* Message bubble tail */
-.message-out::before {
+/* Message bubble tail - disabled */
+/* .message-out::before {
   content: '';
   position: absolute;
   top: 0;
@@ -82,7 +101,7 @@ body {
   height: 0;
   border-right: 8px solid var(--wa-bg-message-in);
   border-top: 8px solid transparent;
-}
+} */
 
 /* Chat pattern background */
 .chat-pattern {

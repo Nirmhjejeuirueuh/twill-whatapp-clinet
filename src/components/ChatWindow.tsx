@@ -39,12 +39,13 @@ export default function ChatWindow({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  const scrollToBottom = (smooth = false) => {
+    messagesEndRef.current?.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto' });
   };
 
   useEffect(() => {
-    scrollToBottom();
+    console.log('📜 ChatWindow: messages updated to', conversation.messages.length, 'messages');
+    scrollToBottom(false); // Instant scroll to prevent animation from top
   }, [conversation.messages]);
 
   const handleSend = async () => {
@@ -82,23 +83,35 @@ export default function ChatWindow({
     return format(date, 'MMMM d, yyyy').toUpperCase();
   };
 
-  const getStatusIcon = (status: Message['status'], direction: Message['direction']) => {
-    if (direction === 'inbound') return null;
+  const getStatusIcon = (message: Message) => {
+    // Only show status for outbound messages
+    if (message.direction === 'inbound') return null;
 
-    switch (status) {
-      case 'queued':
-        return <Clock className="w-3.5 h-3.5 text-[#8696a0]" />;
-      case 'sent':
-        return <Check className="w-3.5 h-3.5 text-[#8696a0]" />;
-      case 'delivered':
-        return <CheckCheck className="w-3.5 h-3.5 text-[#8696a0]" />;
-      case 'read':
-        return <CheckCheck className="w-3.5 h-3.5 text-[#53bdeb]" />;
-      case 'failed':
+    // In Conversations API, delivery status is tracked differently
+    // For simplicity, we'll show checkmarks for sent messages
+    const delivery = message.delivery;
+
+    if (delivery) {
+      // If we have delivery data
+      const readCount = parseInt(delivery.read || '0');
+      const deliveredCount = parseInt(delivery.delivered || '0');
+      const failedCount = parseInt(delivery.failed || '0');
+
+      if (failedCount > 0) {
         return <span className="text-red-500 text-xs">!</span>;
-      default:
-        return <Check className="w-3.5 h-3.5 text-[#8696a0]" />;
+      }
+      if (readCount > 0) {
+        return <CheckCheck className="w-3.5 h-3.5 text-[#53bdeb]" />;
+      }
+      if (deliveredCount > 0) {
+        return <CheckCheck className="w-3.5 h-3.5 text-[#8696a0]" />;
+      }
+      // Sent but not delivered yet
+      return <Check className="w-3.5 h-3.5 text-[#8696a0]" />;
     }
+
+    // No delivery data - just show sent
+    return <Check className="w-3.5 h-3.5 text-[#8696a0]" />;
   };
 
   const getAvatarColor = (phoneNumber: string) => {
@@ -133,18 +146,18 @@ export default function ChatWindow({
   return (
     <div className="flex-1 flex flex-col bg-[#0b141a] h-full min-w-0">
       {/* Header */}
-      <div className="h-[60px] px-4 flex items-center justify-between bg-[#202c33] border-b border-[#2a3942] flex-shrink-0">
-        <div className="flex items-center gap-3 min-w-0 flex-1">
-          <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${getAvatarColor(conversation.phoneNumber)}`}>
-            <span className="text-white font-medium">
+      <div className="h-[70px] px-5 md:px-6 lg:px-8 flex items-center justify-between bg-[#202c33] border-b border-[#2a3942] flex-shrink-0">
+        <div className="flex items-center gap-3 md:gap-4 min-w-0 flex-1">
+          <div className={`w-11 h-11 md:w-12 md:h-12 rounded-full flex items-center justify-center flex-shrink-0 ${getAvatarColor(conversation.phoneNumber)}`}>
+            <span className="text-white font-medium text-sm md:text-base">
               {getInitials(conversation.phoneNumber)}
             </span>
           </div>
           <div className="min-w-0 flex-1">
-            <h2 className="text-[#e9edef] font-medium truncate">
+            <h2 className="text-[#e9edef] font-medium truncate text-base md:text-lg">
               {conversation.profileName || formatPhoneNumber(conversation.phoneNumber)}
             </h2>
-            <p className="text-xs text-[#8696a0] truncate">
+            <p className="text-xs md:text-sm text-[#8696a0] truncate">
               {conversation.isOnline
                 ? 'online'
                 : conversation.lastSeen
@@ -153,29 +166,29 @@ export default function ChatWindow({
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-1 flex-shrink-0">
-          <button className="p-2 hover:bg-[#2a3942] rounded-full transition-colors">
-            <Video className="w-5 h-5 text-[#aebac1]" />
+        <div className="flex items-center gap-1 md:gap-2 flex-shrink-0">
+          <button className="p-2 md:p-2.5 hover:bg-[#2a3942] rounded-full transition-colors">
+            <Video className="w-5 h-5 md:w-6 md:h-6 text-[#aebac1]" />
           </button>
-          <button className="p-2 hover:bg-[#2a3942] rounded-full transition-colors">
-            <Phone className="w-5 h-5 text-[#aebac1]" />
+          <button className="p-2 md:p-2.5 hover:bg-[#2a3942] rounded-full transition-colors">
+            <Phone className="w-5 h-5 md:w-6 md:h-6 text-[#aebac1]" />
           </button>
-          <button className="p-2 hover:bg-[#2a3942] rounded-full transition-colors">
-            <Search className="w-5 h-5 text-[#aebac1]" />
+          <button className="p-2 md:p-2.5 hover:bg-[#2a3942] rounded-full transition-colors">
+            <Search className="w-5 h-5 md:w-6 md:h-6 text-[#aebac1]" />
           </button>
-          <button className="p-2 hover:bg-[#2a3942] rounded-full transition-colors">
-            <MoreVertical className="w-5 h-5 text-[#aebac1]" />
+          <button className="p-2 md:p-2.5 hover:bg-[#2a3942] rounded-full transition-colors">
+            <MoreVertical className="w-5 h-5 md:w-6 md:h-6 text-[#aebac1]" />
           </button>
         </div>
       </div>
 
       {/* Messages Area */}
-      <div className="flex-1 overflow-y-auto chat-pattern px-4 sm:px-8 lg:px-16 py-4 space-y-4">
+      <div className="flex-1 overflow-y-auto chat-pattern px-5 sm:px-12 md:px-16 lg:px-20 xl:px-24 py-6 md:py-8 space-y-2">
         {groupedMessages.map((group, groupIndex) => (
           <div key={groupIndex}>
             {/* Date Header */}
-            <div className="flex justify-center my-6">
-              <span className="bg-[#182229] text-[#8696a0] text-xs px-4 py-2 rounded-full shadow-sm border border-[#2a3942]">
+            <div className="flex justify-center my-8">
+              <span className="bg-[#182229] text-[#8696a0] text-xs md:text-sm px-5 py-2.5 rounded-full shadow-md border border-[#2a3942]">
                 {formatDateHeader(group.date)}
               </span>
             </div>
@@ -189,46 +202,53 @@ export default function ChatWindow({
               return (
                 <div
                   key={msg.sid}
-                  className={`flex mb-2 message-appear ${
+                  className={`flex mb-3 message-appear ${
                     isOutbound ? 'justify-end' : 'justify-start'
                   }`}
                 >
                   <div
-                    className={`relative max-w-[75%] sm:max-w-[65%] px-4 py-3 rounded-2xl shadow-sm ${
+                    className={`relative max-w-[85%] sm:max-w-[75%] md:max-w-[65%] px-4 md:px-5 py-2 rounded-2xl shadow-md ${
                       isOutbound
                         ? `bg-[#005c4b] text-[#e9edef] ${showTail ? 'message-out' : ''}`
                         : `bg-[#202c33] text-[#e9edef] ${showTail ? 'message-in' : ''}`
                     }`}
                   >
                     {/* Media Content */}
-                    {msg.mediaUrl && msg.mediaUrl.length > 0 && (
-                      <div className="mb-2">
-                        {msg.mediaContentType?.[0]?.startsWith('image/') ? (
-                          <img
-                            src={msg.mediaUrl[0]}
-                            alt="Media"
-                            className="rounded-lg max-w-full"
-                          />
+                    {msg.media && msg.media.length > 0 && (
+                      <div className="mb-3">
+                        {msg.media[0].content_type?.startsWith('image/') ? (
+                          <div className="bg-[#2a3942] rounded-lg p-2">
+                            <div className="flex items-center gap-3">
+                              <File className="w-8 h-8 text-[#00a884]" />
+                              <div>
+                                <span className="text-[#e9edef] text-sm md:text-base block">{msg.media[0].filename}</span>
+                                <span className="text-[#8696a0] text-xs">{(msg.media[0].size / 1024).toFixed(1)} KB</span>
+                              </div>
+                            </div>
+                          </div>
                         ) : (
-                          <div className="bg-[#2a3942] rounded-lg p-3 flex items-center gap-2">
+                          <div className="bg-[#2a3942] rounded-lg p-4 flex items-center gap-3">
                             <File className="w-8 h-8 text-[#00a884]" />
-                            <span className="text-[#e9edef] text-sm">Attachment</span>
+                            <div>
+                              <span className="text-[#e9edef] text-sm md:text-base block">{msg.media[0].filename}</span>
+                              <span className="text-[#8696a0] text-xs">{(msg.media[0].size / 1024).toFixed(1)} KB</span>
+                            </div>
                           </div>
                         )}
                       </div>
                     )}
 
                     {/* Message Body */}
-                    <p className="text-[#e9edef] text-sm whitespace-pre-wrap break-words">
+                    <p className="text-[#e9edef] text-sm md:text-base whitespace-pre-wrap break-words leading-relaxed">
                       {msg.body}
                     </p>
 
                     {/* Time and Status */}
-                    <div className="flex items-center justify-end gap-1 mt-1 -mb-1">
-                      <span className="text-[10px] text-[#8696a0]">
+                    <div className="flex items-center justify-end gap-1.5 mt-2 -mb-0.5">
+                      <span className="text-[11px] md:text-xs text-[#8696a0]">
                         {formatMessageTime(msg.dateCreated)}
                       </span>
-                      {getStatusIcon(msg.status, msg.direction)}
+                      {getStatusIcon(msg)}
                     </div>
                   </div>
                 </div>
@@ -240,53 +260,53 @@ export default function ChatWindow({
       </div>
 
       {/* Input Area */}
-      <div className="px-4 py-3 bg-[#202c33] flex items-center gap-2 flex-shrink-0">
-        <button className="p-2 hover:bg-[#2a3942] rounded-full transition-colors">
-          <Smile className="w-6 h-6 text-[#8696a0]" />
+      <div className="px-5 md:px-6 lg:px-8 py-4 md:py-5 bg-[#202c33] flex items-center gap-3 md:gap-4 flex-shrink-0">
+        <button className="p-2 md:p-2.5 hover:bg-[#2a3942] rounded-full transition-colors flex-shrink-0">
+          <Smile className="w-6 h-6 md:w-7 md:h-7 text-[#8696a0]" />
         </button>
 
-        <div className="relative">
+        <div className="relative flex-shrink-0">
           <button
             onClick={() => setShowAttachMenu(!showAttachMenu)}
-            className="p-2 hover:bg-[#2a3942] rounded-full transition-colors"
+            className="p-2 md:p-2.5 hover:bg-[#2a3942] rounded-full transition-colors"
           >
-            <Paperclip className="w-6 h-6 text-[#8696a0]" />
+            <Paperclip className="w-6 h-6 md:w-7 md:h-7 text-[#8696a0]" />
           </button>
 
           {/* Attachment Menu */}
           {showAttachMenu && (
-            <div className="absolute bottom-full left-0 mb-2 bg-[#233138] rounded-lg shadow-lg overflow-hidden">
-              <div className="py-2">
-                <button className="w-full px-4 py-2 flex items-center gap-3 hover:bg-[#2a3942] transition-colors">
-                  <div className="w-10 h-10 rounded-full bg-purple-500 flex items-center justify-center">
+            <div className="absolute bottom-full left-0 mb-3 bg-[#233138] rounded-xl shadow-xl overflow-hidden min-w-[200px]">
+              <div className="py-3">
+                <button className="w-full px-5 py-3 flex items-center gap-4 hover:bg-[#2a3942] transition-colors">
+                  <div className="w-11 h-11 rounded-full bg-purple-500 flex items-center justify-center flex-shrink-0">
                     <ImageIcon className="w-5 h-5 text-white" />
                   </div>
-                  <span className="text-[#e9edef]">Photos & Videos</span>
+                  <span className="text-[#e9edef] text-sm md:text-base">Photos & Videos</span>
                 </button>
-                <button className="w-full px-4 py-2 flex items-center gap-3 hover:bg-[#2a3942] transition-colors">
-                  <div className="w-10 h-10 rounded-full bg-pink-500 flex items-center justify-center">
+                <button className="w-full px-5 py-3 flex items-center gap-4 hover:bg-[#2a3942] transition-colors">
+                  <div className="w-11 h-11 rounded-full bg-pink-500 flex items-center justify-center flex-shrink-0">
                     <Camera className="w-5 h-5 text-white" />
                   </div>
-                  <span className="text-[#e9edef]">Camera</span>
+                  <span className="text-[#e9edef] text-sm md:text-base">Camera</span>
                 </button>
-                <button className="w-full px-4 py-2 flex items-center gap-3 hover:bg-[#2a3942] transition-colors">
-                  <div className="w-10 h-10 rounded-full bg-blue-500 flex items-center justify-center">
+                <button className="w-full px-5 py-3 flex items-center gap-4 hover:bg-[#2a3942] transition-colors">
+                  <div className="w-11 h-11 rounded-full bg-blue-500 flex items-center justify-center flex-shrink-0">
                     <File className="w-5 h-5 text-white" />
                   </div>
-                  <span className="text-[#e9edef]">Document</span>
+                  <span className="text-[#e9edef] text-sm md:text-base">Document</span>
                 </button>
-                <button className="w-full px-4 py-2 flex items-center gap-3 hover:bg-[#2a3942] transition-colors">
-                  <div className="w-10 h-10 rounded-full bg-green-500 flex items-center justify-center">
+                <button className="w-full px-5 py-3 flex items-center gap-4 hover:bg-[#2a3942] transition-colors">
+                  <div className="w-11 h-11 rounded-full bg-green-500 flex items-center justify-center flex-shrink-0">
                     <User className="w-5 h-5 text-white" />
                   </div>
-                  <span className="text-[#e9edef]">Contact</span>
+                  <span className="text-[#e9edef] text-sm md:text-base">Contact</span>
                 </button>
               </div>
             </div>
           )}
         </div>
 
-        <div className="flex-1">
+        <div className="flex-1 min-w-0">
           <input
             ref={inputRef}
             type="text"
@@ -295,7 +315,7 @@ export default function ChatWindow({
             onChange={(e) => setMessage(e.target.value)}
             onKeyPress={handleKeyPress}
             disabled={sending}
-            className="w-full bg-[#2a3942] text-[#e9edef] px-4 py-3 rounded-lg focus:outline-none placeholder-[#8696a0]"
+            className="w-full bg-[#2a3942] text-[#e9edef] px-5 md:px-6 py-3 md:py-3.5 rounded-xl focus:outline-none placeholder-[#8696a0] text-sm md:text-base"
           />
         </div>
 
@@ -303,13 +323,13 @@ export default function ChatWindow({
           <button
             onClick={handleSend}
             disabled={sending}
-            className="p-2 hover:bg-[#2a3942] rounded-full transition-colors"
+            className="p-2 md:p-2.5 hover:bg-[#2a3942] rounded-full transition-colors flex-shrink-0"
           >
-            <Send className={`w-6 h-6 ${sending ? 'text-[#8696a0]' : 'text-[#00a884]'}`} />
+            <Send className={`w-6 h-6 md:w-7 md:h-7 ${sending ? 'text-[#8696a0]' : 'text-[#00a884]'}`} />
           </button>
         ) : (
-          <button className="p-2 hover:bg-[#2a3942] rounded-full transition-colors">
-            <Mic className="w-6 h-6 text-[#8696a0]" />
+          <button className="p-2 md:p-2.5 hover:bg-[#2a3942] rounded-full transition-colors flex-shrink-0">
+            <Mic className="w-6 h-6 md:w-7 md:h-7 text-[#8696a0]" />
           </button>
         )}
       </div>

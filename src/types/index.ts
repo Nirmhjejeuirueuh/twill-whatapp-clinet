@@ -1,24 +1,68 @@
+// Messaging API Message (updated for consistency)
 export interface Message {
-  sid: string;
+  sid: string; // Message SID (starts with IM or SM)
+  conversation_sid?: string; // Conversation SID (starts with CH) - optional for Messaging API
   body: string;
-  from: string;
-  to: string;
+  author?: string; // Phone number of the sender (for Conversations API compatibility)
+  from?: string; // Sender phone number (for Messaging API)
+  to?: string; // Recipient phone number (for Messaging API)
+  participant_sid?: string | null; // Participant SID (starts with MB) - optional
   direction: 'inbound' | 'outbound';
-  status: 'queued' | 'sent' | 'delivered' | 'read' | 'failed' | 'received';
+  index?: number; // Message index in conversation - optional for Messaging API
   dateCreated: string;
-  dateSent: string | null;
-  mediaUrl?: string[];
-  mediaContentType?: string[];
+  dateUpdated?: string | null;
+  media?: Array<{
+    sid: string;
+    size: number;
+    content_type: string;
+    filename: string;
+  }> | null;
+  delivery?: {
+    total: number;
+    sent: string;
+    delivered: string;
+    read: string;
+    failed: string;
+    undelivered: string;
+  } | null;
+  attributes?: string;
 }
 
+// Conversations API Conversation
 export interface Conversation {
-  phoneNumber: string;
-  profileName?: string;
-  lastMessage: Message;
-  messages: Message[];
-  unreadCount: number;
+  sid: string; // Conversation SID (starts with CH)
+  account_sid: string;
+  chat_service_sid: string; // Service SID (starts with IS)
+  messaging_service_sid?: string;
+  friendly_name: string; // We'll use phone number as friendly name
+  unique_name?: string;
+  phoneNumber: string; // Custom field - the participant's phone number
+  profileName?: string; // Custom field
+  lastMessage?: Message; // Custom field
+  messages: Message[]; // Custom field
+  unreadCount: number; // Custom field
+  state: 'initializing' | 'inactive' | 'active' | 'closed';
+  date_created: string;
+  date_updated: string;
   isOnline?: boolean;
   lastSeen?: string;
+}
+
+// Participant in a Conversation
+export interface Participant {
+  sid: string; // Participant SID (starts with MB)
+  conversation_sid: string;
+  account_sid: string;
+  identity?: string | null;
+  messaging_binding?: {
+    type: 'sms' | 'whatsapp';
+    address: string; // Phone number
+    proxy_address: string; // Twilio number
+  };
+  attributes?: string;
+  role_sid?: string;
+  date_created: string;
+  date_updated: string;
 }
 
 export interface TwilioConfig {
@@ -27,16 +71,20 @@ export interface TwilioConfig {
   whatsappNumber: string;
 }
 
+// Conversations API Webhook Payload (onMessageAdded event)
 export interface WebhookPayload {
-  MessageSid: string;
-  Body: string;
-  From: string;
-  To: string;
-  NumMedia: string;
-  MediaUrl0?: string;
-  MediaContentType0?: string;
+  EventType: string; // e.g., "onMessageAdded", "onConversationAdded"
+  ConversationSid: string;
+  MessageSid?: string;
+  Body?: string;
+  Author?: string;
+  ParticipantSid?: string;
+  DateCreated?: string;
+  Index?: number;
+  // Legacy fields for backwards compatibility
+  From?: string;
+  To?: string;
   ProfileName?: string;
-  WaId?: string;
 }
 
 export interface SendMessageRequest {

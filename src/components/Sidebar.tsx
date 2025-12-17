@@ -10,6 +10,7 @@ import {
   Users,
   Archive,
   Star,
+  Trash2,
 } from 'lucide-react';
 import { Conversation } from '@/types';
 import { formatPhoneNumber, getInitials } from '@/lib/utils';
@@ -20,6 +21,7 @@ interface SidebarProps {
   selectedConversation: Conversation | null;
   onSelectConversation: (conversation: Conversation) => void;
   onOpenSettings: () => void;
+  onDeleteConversation: (conversationSid: string) => Promise<void>;
   whatsappNumber: string;
 }
 
@@ -28,10 +30,36 @@ export default function Sidebar({
   selectedConversation,
   onSelectConversation,
   onOpenSettings,
+  onDeleteConversation,
   whatsappNumber,
 }: SidebarProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<'all' | 'unread' | 'groups'>('all');
+  const [hoveredConversation, setHoveredConversation] = useState<string | null>(null);
+
+  const handleDelete = async (e: React.MouseEvent, conversation: Conversation) => {
+    e.stopPropagation(); // Prevent conversation selection
+
+    console.log('🗑️ Delete button clicked for conversation:', {
+      sid: conversation.sid,
+      phoneNumber: conversation.phoneNumber,
+      friendlyName: conversation.friendly_name
+    });
+
+    // Don't allow deleting temp conversations or conversations without SID
+    if (!conversation.sid || conversation.sid === 'temp-conv' || conversation.sid === '') {
+      alert('Cannot delete this conversation: Invalid or unsaved conversation');
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Are you sure you want to delete the conversation with ${formatPhoneNumber(conversation.phoneNumber)}?\n\nThis action cannot be undone.`
+    );
+
+    if (confirmed) {
+      await onDeleteConversation(conversation.sid);
+    }
+  };
 
   const filteredConversations = conversations.filter((conv) => {
     const matchesSearch = conv.phoneNumber
@@ -72,60 +100,60 @@ export default function Sidebar({
   };
 
   return (
-    <div className="w-[400px] min-w-[320px] max-w-[450px] bg-[#111b21] border-r border-[#2a3942] flex flex-col h-full">
+    <div className="w-full md:w-[380px] lg:w-[420px] md:min-w-[340px] md:max-w-[480px] bg-[#111b21] border-r border-[#2a3942] flex flex-col h-full">
       {/* Header */}
-      <div className="h-[60px] px-4 flex items-center justify-between bg-[#202c33] border-b border-[#2a3942]">
+      <div className="h-[70px] px-5 md:px-6 flex items-center justify-between bg-[#202c33] border-b border-[#2a3942]">
         <div className="flex items-center gap-3 min-w-0 flex-1">
-          <div className="w-10 h-10 rounded-full bg-[#00a884] flex items-center justify-center flex-shrink-0">
+          <div className="w-11 h-11 rounded-full bg-[#00a884] flex items-center justify-center flex-shrink-0">
             <MessageSquare className="w-5 h-5 text-white" />
           </div>
           <div className="flex flex-col min-w-0 flex-1">
-            <span className="text-sm text-[#e9edef] font-medium truncate">WhatsApp Business</span>
+            <span className="text-sm md:text-base text-[#e9edef] font-medium truncate">WhatsApp Business</span>
             <span className="text-xs text-[#8696a0] truncate">
               {whatsappNumber ? formatPhoneNumber(whatsappNumber) : 'Not connected'}
             </span>
           </div>
         </div>
-        <div className="flex items-center gap-1 flex-shrink-0">
-          <button className="p-2 hover:bg-[#2a3942] rounded-full transition-colors">
+        <div className="flex items-center gap-1 md:gap-2 flex-shrink-0">
+          <button className="p-2 md:p-2.5 hover:bg-[#2a3942] rounded-full transition-colors">
             <Users className="w-5 h-5 text-[#aebac1]" />
           </button>
-          <button className="p-2 hover:bg-[#2a3942] rounded-full transition-colors">
+          <button className="p-2 md:p-2.5 hover:bg-[#2a3942] rounded-full transition-colors">
             <Archive className="w-5 h-5 text-[#aebac1]" />
           </button>
           <button
             onClick={onOpenSettings}
-            className="p-2 hover:bg-[#2a3942] rounded-full transition-colors"
+            className="p-2 md:p-2.5 hover:bg-[#2a3942] rounded-full transition-colors"
           >
             <Settings className="w-5 h-5 text-[#aebac1]" />
           </button>
-          <button className="p-2 hover:bg-[#2a3942] rounded-full transition-colors">
+          <button className="p-2 md:p-2.5 hover:bg-[#2a3942] rounded-full transition-colors">
             <MoreVertical className="w-5 h-5 text-[#aebac1]" />
           </button>
         </div>
       </div>
 
       {/* Search and Filter */}
-      <div className="px-4 py-3 space-y-3 border-b border-[#2a3942]">
-        <div className="relative">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-[#8696a0]" />
+      <div className="px-5 md:px-6 space-y-2 border-b border-[#2a3942]">
+        <div className="flex items-center gap-3 bg-[#202c33] rounded-lg px-4 py-2 mt-4">
+          <Search className="w-5 h-5 text-[#8696a0] flex-shrink-0" />
           <input
             type="text"
             placeholder="Search or start new chat"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full bg-[#202c33] text-[#e9edef] pl-12 pr-12 py-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#00a884]/50 placeholder-[#8696a0] text-sm"
+            className="flex-1 bg-transparent text-[#e9edef] focus:outline-none placeholder-[#8696a0] text-sm md:text-base"
           />
-          <button className="absolute right-3 top-1/2 -translate-y-1/2 p-1 hover:bg-[#2a3942] rounded-full transition-colors">
-            <Filter className="w-4 h-4 text-[#8696a0]" />
+          <button className="p-1.5 hover:bg-[#2a3942] rounded-full transition-colors flex-shrink-0">
+            <Filter className="w-5 h-5 text-[#8696a0]" />
           </button>
         </div>
 
         {/* Filter Tabs */}
-        <div className="flex gap-2 overflow-x-auto">
+        <div className="flex gap-2.5 overflow-x-auto">
           <button
             onClick={() => setActiveFilter('all')}
-            className={`px-4 py-2 text-sm rounded-full transition-colors whitespace-nowrap ${
+            className={`px-2 my-2 text-sm md:text-base rounded-full transition-colors whitespace-nowrap ${
               activeFilter === 'all'
                 ? 'bg-[#00a884] text-white'
                 : 'bg-[#202c33] text-[#8696a0] hover:bg-[#2a3942]'
@@ -135,7 +163,7 @@ export default function Sidebar({
           </button>
           <button
             onClick={() => setActiveFilter('unread')}
-            className={`px-4 py-2 text-sm rounded-full transition-colors whitespace-nowrap ${
+            className={`px-5 my-2 text-sm md:text-base rounded-full transition-colors whitespace-nowrap ${
               activeFilter === 'unread'
                 ? 'bg-[#00a884] text-white'
                 : 'bg-[#202c33] text-[#8696a0] hover:bg-[#2a3942]'
@@ -145,7 +173,7 @@ export default function Sidebar({
           </button>
           <button
             onClick={() => setActiveFilter('groups')}
-            className={`px-4 py-2 text-sm rounded-full transition-colors whitespace-nowrap ${
+            className={`px-5 my-2 text-sm md:text-base rounded-full transition-colors whitespace-nowrap ${
               activeFilter === 'groups'
                 ? 'bg-[#00a884] text-white'
                 : 'bg-[#202c33] text-[#8696a0] hover:bg-[#2a3942]'
@@ -159,9 +187,9 @@ export default function Sidebar({
       {/* Conversation List */}
       <div className="flex-1 overflow-y-auto">
         {filteredConversations.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-[#8696a0] px-6 py-8">
-            <MessageSquare className="w-16 h-16 mb-4 opacity-50" />
-            <p className="text-center text-sm leading-relaxed">
+          <div className="flex flex-col items-center justify-center h-full text-[#8696a0] px-8 py-12">
+            <MessageSquare className="w-20 h-20 mb-6 opacity-50" />
+            <p className="text-center text-sm md:text-base leading-relaxed">
               {searchQuery
                 ? 'No conversations found matching your search'
                 : 'No conversations yet. Start a new chat to begin messaging.'}
@@ -172,45 +200,59 @@ export default function Sidebar({
             <div
               key={conversation.phoneNumber}
               onClick={() => onSelectConversation(conversation)}
-              className={`flex items-center gap-3 px-4 py-4 cursor-pointer transition-colors border-b border-[#2a3942]/50 hover:bg-[#202c33] ${
+              onMouseEnter={() => setHoveredConversation(conversation.phoneNumber)}
+              onMouseLeave={() => setHoveredConversation(null)}
+              className={`flex items-center gap-4 px-5 md:px-6 py-4 md:py-5 cursor-pointer transition-colors border-b border-[#2a3942]/50 hover:bg-[#202c33] relative ${
                 selectedConversation?.phoneNumber === conversation.phoneNumber
                   ? 'bg-[#2a3942] border-l-4 border-l-[#00a884]'
                   : ''
               }`}
             >
               {/* Avatar */}
-              <div className={`w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0 ${getAvatarColor(conversation.phoneNumber)}`}>
-                <span className="text-white font-medium text-sm">
+              <div className={`w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center flex-shrink-0 ${getAvatarColor(conversation.phoneNumber)}`}>
+                <span className="text-white font-medium text-sm md:text-base">
                   {getInitials(conversation.phoneNumber)}
                 </span>
               </div>
 
               {/* Content */}
               <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-[#e9edef] font-medium truncate text-sm">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-[#e9edef] font-medium truncate text-sm md:text-base">
                     {conversation.profileName || formatPhoneNumber(conversation.phoneNumber)}
                   </span>
-                  <span
-                    className={`text-xs flex-shrink-0 ${
-                      conversation.unreadCount > 0
-                        ? 'text-[#00a884] font-medium'
-                        : 'text-[#8696a0]'
-                    }`}
-                  >
-                    {formatMessageTime(conversation.lastMessage.dateCreated)}
-                  </span>
+                  <div className="flex items-center gap-2 flex-shrink-0 ml-3">
+                    {/* Delete button - show on hover */}
+                    {hoveredConversation === conversation.phoneNumber && (
+                      <button
+                        onClick={(e) => handleDelete(e, conversation)}
+                        className="p-1.5 hover:bg-[#374249] rounded-full transition-colors"
+                        title="Delete conversation"
+                      >
+                        <Trash2 className="w-4 h-4 text-[#8696a0] hover:text-red-400" />
+                      </button>
+                    )}
+                    <span
+                      className={`text-xs md:text-sm ${
+                        conversation.unreadCount > 0
+                          ? 'text-[#00a884] font-medium'
+                          : 'text-[#8696a0]'
+                      }`}
+                    >
+                      {conversation.lastMessage ? formatMessageTime(conversation.lastMessage.dateCreated) : ''}
+                    </span>
+                  </div>
                 </div>
                 <div className="flex items-center justify-between">
-                  <p className="text-sm text-[#8696a0] truncate flex items-center gap-1 max-w-[70%]">
-                    {conversation.lastMessage.direction === 'outbound' && (
+                  <p className="text-sm md:text-base text-[#8696a0] truncate flex items-center gap-1.5 max-w-[70%]">
+                    {conversation.lastMessage?.direction === 'outbound' && (
                       <span className="text-[#53bdeb] flex-shrink-0">✓</span>
                     )}
-                    {conversation.lastMessage.body || '[Media]'}
+                    {conversation.lastMessage?.body || '[No messages]'}
                   </p>
                   <div className="flex items-center gap-2 flex-shrink-0">
                     {conversation.unreadCount > 0 && (
-                      <span className="bg-[#00a884] text-white text-xs rounded-full min-w-[20px] h-5 flex items-center justify-center px-1.5">
+                      <span className="bg-[#00a884] text-white text-xs md:text-sm rounded-full min-w-[22px] h-6 flex items-center justify-center px-2">
                         {conversation.unreadCount > 99 ? '99+' : conversation.unreadCount}
                       </span>
                     )}
@@ -223,8 +265,8 @@ export default function Sidebar({
       </div>
 
       {/* Footer with encryption notice */}
-      <div className="px-4 py-3 border-t border-[#2a3942]">
-        <p className="text-xs text-[#8696a0] text-center">
+      <div className="px-6 py-4 border-t border-[#2a3942]">
+        <p className="text-xs md:text-sm text-[#8696a0] text-center leading-relaxed">
           🔒 Messages are end-to-end encrypted via Twilio
         </p>
       </div>

@@ -165,7 +165,7 @@ Get grouped conversations from the message store.
 ### Changing Poll Interval
 Edit `src/components/WhatsAppClient.tsx`:
 ```typescript
-const interval = setInterval(() => fetchMessages(), 5000); // Change 5000 to desired ms
+const interval = setInterval(() => fetchMessages(), 2000); // Change 2000 to desired ms (2 seconds for real-time updates)
 ```
 
 ### Adding Media Support
@@ -213,7 +213,7 @@ CMD ["npm", "start"]
 - Check browser console for errors
 
 ### Rate limits
-Twilio has rate limits on API calls. The app polls every 5 seconds by default. For high-volume use, consider implementing webhooks properly.
+Twilio has rate limits on API calls. The app polls every 30 seconds by default (optimized for Vercel free tier). For high-volume use, consider implementing webhooks properly.
 
 ## Security Notes
 
