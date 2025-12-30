@@ -104,7 +104,3 @@ export async function GET() {
     expectedFormat: 'Form data with MessageSid, Body, From, To, etc.',
   });
 }
-      'onParticipantAdded'
-    ]
-  });
-}

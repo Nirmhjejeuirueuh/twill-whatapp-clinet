@@ -11,6 +11,8 @@ export interface Message {
   index?: number; // Message index in conversation - optional for Messaging API
   dateCreated: string;
   dateUpdated?: string | null;
+  dateSent?: string | null; // Date when message was sent
+  status?: string; // Message status (e.g., 'queued', 'sent', 'delivered')
   media?: Array<{
     sid: string;
     size: number;
