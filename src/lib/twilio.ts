@@ -56,23 +56,23 @@ export async function fetchMessages(
   console.log('   Using AccountSID:', accountSid?.substring(0, 10) || 'from env');
 
   try {
-    // Calculate date filter - only fetch messages from last 7 days
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    // Calculate date filter - only fetch messages from last 30 days
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-    console.log('   → Fetching inbound messages (last 7 days)...');
+    console.log('   → Fetching inbound messages (last 30 days)...');
     const inboundMessages = await client.messages.list({
       to: `whatsapp:${ourNumber}`,
       limit,
-      dateSentAfter: sevenDaysAgo,
+      dateSentAfter: thirtyDaysAgo,
     });
     console.log(`   ✓ Found ${inboundMessages.length} inbound messages`);
 
-    console.log('   → Fetching outbound messages (last 7 days)...');
+    console.log('   → Fetching outbound messages (last 30 days)...');
     const outboundMessages = await client.messages.list({
       from: `whatsapp:${ourNumber}`,
       limit,
-      dateSentAfter: sevenDaysAgo,
+      dateSentAfter: thirtyDaysAgo,
     });
     console.log(`   ✓ Found ${outboundMessages.length} outbound messages`);
 
