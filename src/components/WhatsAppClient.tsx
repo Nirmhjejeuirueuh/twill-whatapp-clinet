@@ -87,6 +87,10 @@ export default function WhatsAppClient() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [newChatOpen, setNewChatOpen] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
+  const [loadedUntil, setLoadedUntil] = useState<Date | null>(null);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [lastLoadTime, setLastLoadTime] = useState<number>(0);
+  const initialLoadDone = useRef<string>('');
 
   // Load config from localStorage
   useEffect(() => {
@@ -137,30 +141,23 @@ export default function WhatsAppClient() {
   }, []); // Empty dependency array - only run once on mount
 
   // Fetch messages
-  const fetchMessages = useCallback(async (cfg?: TwilioConfig) => {
+  const fetchMessages = useCallback(async (cfg?: TwilioConfig, fromDate?: string, toDate?: string, isAppend = false) => {
     console.log('\n🚀 ===== fetchMessages CALLED =====');
     console.log('   Timestamp:', new Date().toISOString());
-    console.log('   Config source:', cfg ? 'provided as parameter' : 'using state config');
+    console.log('   isAppend:', isAppend);
     
     const activeConfig = cfg || config;
 
-    console.log('🔍 Active config check:', {
-      accountSid: activeConfig.accountSid ? `${activeConfig.accountSid.slice(0,10)}...` : 'MISSING',
-      authToken: activeConfig.authToken ? 'present' : 'MISSING',
-      whatsappNumber: activeConfig.whatsappNumber || 'MISSING'
-    });
-
     if (!activeConfig.accountSid || !activeConfig.authToken || !activeConfig.whatsappNumber) {
       console.log('❌ fetchMessages: Missing credentials, ABORTING');
-      console.log('===== fetchMessages ENDED (failed) =====\n');
       setIsConnected(false);
       return;
     }
 
     try {
-      console.log('🌐 Making API call to /api/messages...');
+      console.log('🌐 Making API call to /api/messages...', { fromDate, toDate });
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+      const timeoutId = setTimeout(() => controller.abort(), 20000); // 20 second timeout
 
       const params = new URLSearchParams({
         accountSid: activeConfig.accountSid,
@@ -168,97 +165,133 @@ export default function WhatsAppClient() {
         whatsappNumber: activeConfig.whatsappNumber
       });
 
+      if (fromDate) params.set('fromDate', fromDate);
+      if (toDate) params.set('toDate', toDate);
+
       const response = await fetch(`/api/messages?${params}`, {
         signal: controller.signal
       });
       clearTimeout(timeoutId);
-      console.log('📡 API response status:', response.status);
-      console.log('📡 API response ok:', response.ok);
 
       if (!response.ok) {
-        console.error('❌ API response not ok:', response.status, response.statusText);
         throw new Error(`API request failed: ${response.status} ${response.statusText}`);
       }
 
       const result = await response.json();
-      console.log('📦 API response received, success:', result.success);
 
       if (result.success) {
-        console.log('📥 Fetched conversations (Messaging API):');
-        console.log('  Total conversations:', result.data.conversations.length);
-        const totalMessages = result.data.conversations.reduce((sum: number, c: Conversation) => sum + c.messages.length, 0);
-        console.log('  Total messages:', totalMessages);
-        result.data.conversations.forEach((conv: Conversation, i: number) => {
-          console.log(`  Conversation ${i+1}: ${conv.phoneNumber} (${conv.messages.length} messages)`);
-        });
-
-        // Replace with fetched conversations (don't merge to avoid stale data)
         const fetched = result.data.conversations;
+        
+        if (!isAppend) {
+          // Initial load - replace conversations
+          setConversations(fetched);
+          // Set loadedUntil based on the fromDate we requested
+          if (fromDate) {
+            setLoadedUntil(new Date(fromDate));
+          } else {
+            const thirtyDaysAgo = new Date();
+            thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+            setLoadedUntil(thirtyDaysAgo);
+          }
+        } else {
+          // Loading more - merge conversations
+          setConversations(prev => {
+            const merged = [...prev];
+            fetched.forEach((newConv: Conversation) => {
+              const existingIndex = merged.findIndex(c => c.phoneNumber === newConv.phoneNumber);
+              if (existingIndex >= 0) {
+                const existingMessages = merged[existingIndex].messages;
+                const newMessages = newConv.messages.filter(
+                  msg => !existingMessages.some(existing => existing.sid === msg.sid)
+                );
+                merged[existingIndex] = {
+                  ...merged[existingIndex],
+                  messages: [...existingMessages, ...newMessages].sort(
+                    (a, b) => new Date(a.dateCreated).getTime() - new Date(b.dateCreated).getTime()
+                  ),
+                  date_updated: new Date(newConv.date_updated) > new Date(merged[existingIndex].date_updated)
+                    ? newConv.date_updated
+                    : merged[existingIndex].date_updated
+                };
+              } else {
+                merged.push(newConv);
+              }
+            });
+            return merged.sort((a, b) =>
+              new Date(b.date_updated).getTime() - new Date(a.date_updated).getTime()
+            );
+          });
+          
+          if (fromDate) {
+            setLoadedUntil(new Date(fromDate));
+          }
+        }
 
-        // Debug: Log all conversation SIDs
-        console.log('📋 Current conversations:', fetched.map((c: Conversation) => ({
-          sid: c.sid,
-          phoneNumber: c.phoneNumber,
-          messageCount: c.messages.length
-        })));
-
-        setConversations(fetched);
         setIsConnected(true);
         setError(null);
-
-        // Update selected conversation if it exists
-        setSelectedConversation(prev => {
-          if (!prev) return null;
-          const updated = fetched.find(
-            (c: Conversation) => c.phoneNumber === prev.phoneNumber
-          );
-          if (updated) {
-            console.log('🔄 Updating selected conversation with', updated.messages.length, 'messages');
-            return updated;
-          }
-          return prev;
-        });
       } else {
         setError(result.error);
         setIsConnected(false);
       }
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') {
-        console.error('❌ API call timed out after 90 seconds');
         setError('API request timed out');
       } else {
-        console.error('❌ fetchMessages error:', err);
         setError(err instanceof Error ? err.message : 'Failed to fetch messages');
       }
       setIsConnected(false);
     } finally {
-      console.log('===== fetchMessages ENDED =====\n');
       setLoading(false);
     }
   }, [config]);
+
+  // Load more messages (next day)
+  const loadMoreMessages = useCallback(async () => {
+    const now = Date.now();
+    if (isLoadingMore || !loadedUntil || loading || (now - lastLoadTime) < 1000) {
+      return;
+    }
+
+    console.log('🔄 Loading more messages from loadedUntil:', loadedUntil?.toISOString());
+
+    setIsLoadingMore(true);
+    setLastLoadTime(now);
+
+    try {
+      const fromDate = new Date(loadedUntil);
+      fromDate.setDate(fromDate.getDate() - 1);
+      const toDate = new Date(loadedUntil);
+
+      await fetchMessages(config, fromDate.toISOString(), toDate.toISOString(), true);
+    } catch (error) {
+      console.error('❌ Failed to load more messages:', error);
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }, [config, loadedUntil, isLoadingMore, loading, lastLoadTime, fetchMessages]);
 
   // Save config to localStorage
   const handleSaveConfig = (newConfig: TwilioConfig) => {
     setConfig(newConfig);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(newConfig));
+    initialLoadDone.current = ''; // Reset to trigger new initial load
     fetchMessages(newConfig);
   };
 
   // Fetch messages once config is loaded from localStorage
   useEffect(() => {
-    console.log('\n🔄 ===== FETCH EFFECT TRIGGERED =====');
-    console.log('   loading:', loading);
-    console.log('   config.accountSid:', config.accountSid ? `${config.accountSid.slice(0,10)}...` : 'MISSING');
-    console.log('   config.authToken:', config.authToken ? 'present' : 'MISSING');
-    console.log('   config.whatsappNumber:', config.whatsappNumber || 'MISSING');
-
-    if (!loading && config.accountSid && config.authToken && config.whatsappNumber) {
-      console.log('✅ All conditions met - calling fetchMessages now!');
-      fetchMessages();
-    } else {
-      console.log('⏸️  Waiting for config to load...');
+    const configKey = `${config.accountSid}-${config.authToken}-${config.whatsappNumber}`;
+    
+    if (!loading && config.accountSid && config.authToken && config.whatsappNumber && initialLoadDone.current !== configKey) {
+      console.log('✅ Initial load conditions met - calling fetchMessages for last 1 day!');
+      initialLoadDone.current = configKey;
+      
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      const today = new Date();
+      fetchMessages(config, yesterday.toISOString(), today.toISOString(), false);
     }
-  }, [loading, config.accountSid, config.authToken, config.whatsappNumber, fetchMessages]);
+  }, [loading, config, fetchMessages]);
 
   // Save conversations to localStorage whenever they change
   // Only save conversations with valid phone numbers
@@ -522,6 +555,8 @@ export default function WhatsAppClient() {
           onOpenSettings={() => setSettingsOpen(true)}
           onDeleteConversation={handleDeleteConversation}
           whatsappNumber={config.whatsappNumber}
+          onLoadMoreConversations={loadMoreMessages}
+          isLoadingMoreConversations={isLoadingMore}
         />
 
         {/* Chat Area */}

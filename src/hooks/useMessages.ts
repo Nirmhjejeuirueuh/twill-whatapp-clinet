@@ -43,7 +43,15 @@ export function useMessages({
         whatsappNumber,
       });
 
-      const response = await fetch(`/api/messages?${params}`);
+      // Create AbortController for timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 20000); // 20 second timeout
+
+      const response = await fetch(`/api/messages?${params}`, {
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
       const result = await response.json();
 
       if (result.success) {
@@ -64,7 +72,11 @@ export function useMessages({
         setError(result.error);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch messages');
+      if (err instanceof Error && err.name === 'AbortError') {
+        setError('Request timed out. The server took too long to respond (20s timeout).');
+      } else {
+        setError(err instanceof Error ? err.message : 'Failed to fetch messages');
+      }
     } finally {
       setLoading(false);
     }

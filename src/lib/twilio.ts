@@ -36,7 +36,8 @@ export async function fetchMessages(
   accountSid?: string,
   authToken?: string,
   whatsappNumber?: string,
-  limit: number = 100
+  fromDate?: string | null,
+  toDate?: string | null
 ): Promise<Message[]> {
   const client = getTwilioClient(accountSid, authToken);
   let ourNumber = whatsappNumber || process.env.TWILIO_WHATSAPP_NUMBER;
@@ -56,20 +57,38 @@ export async function fetchMessages(
   console.log('   Using AccountSID:', accountSid?.substring(0, 10) || 'from env');
 
   try {
-    // Calculate date filter - fetch messages from last 30 days (increased from 7)
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    // Calculate date filter - use provided dates or default to last 30 days
+    let dateSentAfter: Date;
+    let dateSentBefore: Date | undefined;
 
+    if (fromDate && toDate) {
+      dateSentAfter = new Date(fromDate);
+      dateSentBefore = new Date(toDate);
+    } else {
+      // Default to last 30 days if no dates provided
+      dateSentAfter = new Date();
+      dateSentAfter.setDate(dateSentAfter.getDate() - 30);
+    }
+
+    console.log('   Date filter: messages after', dateSentAfter.toISOString());
+    if (dateSentBefore) {
+      console.log('   Date filter: messages before', dateSentBefore.toISOString());
+    }
+
+    // Fetch all inbound messages within date range
     const inboundMessages = await client.messages.list({
       to: `whatsapp:${ourNumber}`,
-      limit,
-      dateSentAfter: thirtyDaysAgo,
+      dateSentAfter: dateSentAfter,
+      ...(dateSentBefore && { dateSentBefore }),
+      limit: 10000, // Increased limit to get all messages within date range
     });
 
+    // Fetch all outbound messages within date range
     const outboundMessages = await client.messages.list({
       from: `whatsapp:${ourNumber}`,
-      limit,
-      dateSentAfter: thirtyDaysAgo,
+      dateSentAfter: dateSentAfter,
+      ...(dateSentBefore && { dateSentBefore }),
+      limit: 10000, // Increased limit to get all messages within date range
     });
 
     // Convert to our Message format
@@ -117,7 +136,7 @@ export async function fetchMessages(
       (a, b) => new Date(a.dateCreated).getTime() - new Date(b.dateCreated).getTime()
     );
 
-    console.log(`✅ Fetched ${allMessages.length} messages (${inboundMessages.length} inbound, ${outboundMessages.length} outbound)`);
+    console.log(`✅ Fetched ${allMessages.length} messages (${inboundMessages.length} inbound, ${outboundMessages.length} outbound) from date range`);
     return allMessages;
   } catch (error: any) {
     console.error('❌ Error fetching messages from Twilio Messaging API:');
@@ -482,6 +501,69 @@ export async function deleteConversation(
 
   console.log('🗑️  Deleting conversation:', conversationSid);
 
+  // Check if it's a virtual conversation ID (starts with conv_) or a phone number
+  if (conversationSid.startsWith('conv_') || conversationSid.includes('whatsapp:')) {
+    let phoneNumber = conversationSid;
+    
+    // Remove conv_ prefix if present
+    if (phoneNumber.startsWith('conv_')) {
+      phoneNumber = phoneNumber.replace('conv_', '');
+    }
+    
+    // Ensure whatsapp: prefix is present
+    if (!phoneNumber.startsWith('whatsapp:') && !phoneNumber.startsWith('+')) {
+       // If it looks like a raw number, add whatsapp:
+       phoneNumber = `whatsapp:${phoneNumber}`;
+    } else if (phoneNumber.startsWith('+')) {
+       phoneNumber = `whatsapp:${phoneNumber}`;
+    }
+
+    console.log('   Identified as virtual conversation for:', phoneNumber);
+    
+    try {
+      // Fetch messages where the user is the sender (inbound to us)
+      console.log('   Fetching inbound messages from:', phoneNumber);
+      const inboundMessages = await client.messages.list({
+        from: phoneNumber,
+        limit: 100, // Limit to recent messages to avoid timeouts
+      });
+
+      // Fetch messages where the user is the recipient (outbound from us)
+      console.log('   Fetching outbound messages to:', phoneNumber);
+      const outboundMessages = await client.messages.list({
+        to: phoneNumber,
+        limit: 100,
+      });
+
+      const allMessages = [...inboundMessages, ...outboundMessages];
+      console.log(`   Found ${allMessages.length} messages to delete`);
+
+      if (allMessages.length === 0) {
+        console.log('   No messages found to delete');
+        return;
+      }
+
+      // Delete messages in parallel
+      const results = await Promise.allSettled(
+        allMessages.map(msg => client.messages(msg.sid).remove())
+      );
+
+      const successCount = results.filter(r => r.status === 'fulfilled').length;
+      const failCount = results.filter(r => r.status === 'rejected').length;
+
+      console.log(`✅ Deleted ${successCount} messages, failed to delete ${failCount} messages`);
+      
+      if (failCount > 0) {
+        console.warn('   Some messages could not be deleted. They might be too old or already deleted.');
+      }
+      
+      return;
+    } catch (error) {
+      console.error('❌ Error deleting virtual conversation messages:', error);
+      throw error;
+    }
+  }
+
   try {
     await client.conversations.v1.conversations(conversationSid).remove();
     console.log('✅ Conversation deleted successfully');
@@ -550,7 +632,7 @@ export function groupMessagesIntoConversations(
     // Get or create conversation
     if (!conversationsMap.has(otherNumber)) {
       conversationsMap.set(otherNumber, {
-        sid: '', // No SID for Messaging API conversations
+        sid: `conv_${otherNumber}`, // Virtual conversation SID for Messaging API
         account_sid: '',
         chat_service_sid: '',
         friendly_name: otherNumber,

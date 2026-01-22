@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import {
   MessageSquare,
   MoreVertical,
@@ -23,6 +23,8 @@ interface SidebarProps {
   onOpenSettings: () => void;
   onDeleteConversation: (conversationSid: string) => Promise<void>;
   whatsappNumber: string;
+  onLoadMoreConversations?: () => Promise<void>;
+  isLoadingMoreConversations?: boolean;
 }
 
 export default function Sidebar({
@@ -32,10 +34,23 @@ export default function Sidebar({
   onOpenSettings,
   onDeleteConversation,
   whatsappNumber,
+  onLoadMoreConversations,
+  isLoadingMoreConversations = false,
 }: SidebarProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<'all' | 'unread' | 'groups'>('all');
   const [hoveredConversation, setHoveredConversation] = useState<string | null>(null);
+  const conversationsContainerRef = useRef<HTMLDivElement>(null);
+  const [scrollTimeout, setScrollTimeout] = useState<NodeJS.Timeout | null>(null);
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (scrollTimeout) {
+        clearTimeout(scrollTimeout);
+      }
+    };
+  }, [scrollTimeout]);
 
   const handleDelete = async (e: React.MouseEvent, conversation: Conversation) => {
     e.stopPropagation(); // Prevent conversation selection
@@ -43,11 +58,19 @@ export default function Sidebar({
     console.log('🗑️ Delete button clicked for conversation:', {
       sid: conversation.sid,
       phoneNumber: conversation.phoneNumber,
-      friendlyName: conversation.friendly_name
+      friendlyName: conversation.friendly_name,
+      sidType: typeof conversation.sid,
+      sidLength: conversation.sid?.length || 0
     });
 
     // Don't allow deleting temp conversations or conversations without SID
     if (!conversation.sid || conversation.sid === 'temp-conv' || conversation.sid === '') {
+      console.error('❌ Invalid conversation for deletion:', {
+        hasSid: !!conversation.sid,
+        sid: conversation.sid,
+        isTempConv: conversation.sid === 'temp-conv',
+        isEmpty: conversation.sid === ''
+      });
       alert('Cannot delete this conversation: Invalid or unsaved conversation');
       return;
     }
@@ -82,6 +105,27 @@ export default function Sidebar({
       return 'Yesterday';
     }
     return format(date, 'dd/MM/yyyy');
+  };
+
+  const handleScroll = () => {
+    if (!conversationsContainerRef.current || !onLoadMoreConversations || isLoadingMoreConversations) return;
+
+    // Clear existing timeout
+    if (scrollTimeout) {
+      clearTimeout(scrollTimeout);
+    }
+
+    // Set new timeout to debounce scroll events
+    const timeout = setTimeout(() => {
+      const { scrollTop, scrollHeight, clientHeight } = conversationsContainerRef.current!;
+      const isNearBottom = scrollTop + clientHeight >= scrollHeight - 100; // 100px threshold
+
+      if (isNearBottom && onLoadMoreConversations) {
+        onLoadMoreConversations();
+      }
+    }, 300); // 300ms debounce
+
+    setScrollTimeout(timeout);
   };
 
   const getAvatarColor = (phoneNumber: string) => {
@@ -185,7 +229,11 @@ export default function Sidebar({
       </div>
 
       {/* Conversation List */}
-      <div className="flex-1 overflow-y-auto">
+      <div 
+        ref={conversationsContainerRef}
+        className="flex-1 overflow-y-auto"
+        onScroll={handleScroll}
+      >
         {filteredConversations.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-[#8696a0] px-8 py-12">
             <MessageSquare className="w-20 h-20 mb-6 opacity-50" />
@@ -261,6 +309,16 @@ export default function Sidebar({
               </div>
             </div>
           ))
+        )}
+
+        {/* Loading indicator for more conversations */}
+        {isLoadingMoreConversations && (
+          <div className="flex items-center justify-center py-4 px-6">
+            <div className="flex items-center gap-3 text-[#8696a0]">
+              <div className="w-4 h-4 border-2 border-[#8696a0] border-t-transparent rounded-full animate-spin"></div>
+              <span className="text-sm">Loading more conversations...</span>
+            </div>
+          </div>
         )}
       </div>
 

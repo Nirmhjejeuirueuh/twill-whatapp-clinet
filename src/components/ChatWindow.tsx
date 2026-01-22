@@ -219,7 +219,14 @@ export default function ChatWindow({
                     {msg.media && msg.media.length > 0 && (
                       <div className="mb-3">
                         {msg.media[0].content_type?.startsWith('image/') ? (
-                          <div className="rounded-lg overflow-hidden cursor-pointer" onClick={() => setSelectedImage(msg.media![0].url)}>
+                          <div 
+                            className="rounded-lg overflow-hidden cursor-pointer" 
+                            onClick={() => {
+                              if (msg.media?.[0]?.url) {
+                                setSelectedImage(msg.media[0].url);
+                              }
+                            }}
+                          >
                             <img
                               src={msg.media[0].url}
                               alt={msg.media[0].filename || 'Image'}

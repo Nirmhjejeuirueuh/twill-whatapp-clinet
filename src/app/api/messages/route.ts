@@ -11,6 +11,8 @@ export async function GET(request: NextRequest) {
     const accountSid = searchParams.get('accountSid') || process.env.TWILIO_ACCOUNT_SID;
     const authToken = searchParams.get('authToken') || process.env.TWILIO_AUTH_TOKEN;
     const whatsappNumber = searchParams.get('whatsappNumber') || process.env.TWILIO_WHATSAPP_NUMBER;
+    const fromDate = searchParams.get('fromDate');
+    const toDate = searchParams.get('toDate');
 
     console.log('Credentials check:');
     console.log('  AccountSID:', accountSid ? `${accountSid.substring(0, 10)}...` : 'MISSING');
@@ -26,7 +28,7 @@ export async function GET(request: NextRequest) {
     }
 
     console.log('Fetching messages from Twilio Messaging API...');
-    const twilioMessages = await fetchMessages(accountSid, authToken, whatsappNumber, 100);
+    const twilioMessages = await fetchMessages(accountSid, authToken, whatsappNumber, fromDate, toDate);
     console.log('✅ Twilio API call completed, messages fetched:', twilioMessages.length);
 
     // Get messages from webhook store and merge
