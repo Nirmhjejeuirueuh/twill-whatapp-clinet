@@ -17,6 +17,7 @@ import {
   File,
   Camera,
   User,
+  X,
 } from 'lucide-react';
 import { Conversation, Message } from '@/types';
 import { formatPhoneNumber, getInitials } from '@/lib/utils';
@@ -36,6 +37,7 @@ export default function ChatWindow({
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
   const [showAttachMenu, setShowAttachMenu] = useState(false);
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -217,14 +219,13 @@ export default function ChatWindow({
                     {msg.media && msg.media.length > 0 && (
                       <div className="mb-3">
                         {msg.media[0].content_type?.startsWith('image/') ? (
-                          <div className="bg-[#2a3942] rounded-lg p-2">
-                            <div className="flex items-center gap-3">
-                              <File className="w-8 h-8 text-[#00a884]" />
-                              <div>
-                                <span className="text-[#e9edef] text-sm md:text-base block">{msg.media[0].filename}</span>
-                                <span className="text-[#8696a0] text-xs">{(msg.media[0].size / 1024).toFixed(1)} KB</span>
-                              </div>
-                            </div>
+                          <div className="rounded-lg overflow-hidden cursor-pointer" onClick={() => setSelectedImage(msg.media![0].url)}>
+                            <img
+                              src={msg.media[0].url}
+                              alt={msg.media[0].filename || 'Image'}
+                              className="max-w-full h-auto rounded-lg object-contain max-h-[300px]"
+                              loading="lazy"
+                            />
                           </div>
                         ) : (
                           <div className="bg-[#2a3942] rounded-lg p-4 flex items-center gap-3">
@@ -333,6 +334,23 @@ export default function ChatWindow({
           </button>
         )}
       </div>
+
+      {/* Image Modal */}
+      {selectedImage && (
+        <div className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <button
+            onClick={() => setSelectedImage(null)}
+            className="absolute top-4 right-4 p-2 bg-black/50 hover:bg-black/70 rounded-full text-white transition-colors"
+          >
+            <X className="w-6 h-6" />
+          </button>
+          <img
+            src={selectedImage}
+            alt="Full size"
+            className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
+          />
+        </div>
+      )}
     </div>
   );
 }
