@@ -27,10 +27,18 @@ export async function GET(request: NextRequest) {
 
     console.log('Fetching messages from Twilio Messaging API...');
     const twilioMessages = await fetchMessages(accountSid, authToken, whatsappNumber, 100);
+    console.log('✅ Twilio API call completed, messages fetched:', twilioMessages.length);
 
     // Get messages from webhook store and merge
     const storeMessages = messageStore.getMessages();
-    console.log(`📦 Merging ${storeMessages.length} messages from store`);
+    console.log(`📦 Messages in MessageStore: ${storeMessages.length}`);
+    if (storeMessages.length > 0) {
+      console.log('   Sample store messages:', storeMessages.slice(0, 3).map(m => ({
+        sid: m.sid,
+        from: m.from,
+        body: m.body?.substring(0, 50)
+      })));
+    }
 
     // Merge messages, avoiding duplicates by sid
     const allMessages = [...twilioMessages];

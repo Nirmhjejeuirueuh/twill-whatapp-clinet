@@ -8,7 +8,6 @@ import SettingsModal from './SettingsModal';
 import NewChatModal from './NewChatModal';
 import ConnectionStatus from './ConnectionStatus';
 import { Conversation, Message } from '@/types';
-import { messageStore } from '@/lib/store';
 import { Plus } from 'lucide-react';
 
 interface TwilioConfig {
@@ -28,9 +27,9 @@ function messagesToConversations(messages: Message[], ourNumber: string): Conver
     // Determine the other participant's number
     let participantNumber = '';
     if (message.from && message.from !== ourNumber) {
-      participantNumber = message.from.replace('whatsapp:', '');
+      participantNumber = message.from;
     } else if (message.to && message.to !== ourNumber) {
-      participantNumber = message.to.replace('whatsapp:', '');
+      participantNumber = message.to;
     }
 
     if (!participantNumber) return; // Skip if we can't determine participant
@@ -42,8 +41,8 @@ function messagesToConversations(messages: Message[], ourNumber: string): Conver
         sid: `conv_${participantNumber}`,
         account_sid: '', // Not available from webhook
         chat_service_sid: '', // Not available from webhook
-        friendly_name: participantNumber,
-        phoneNumber: participantNumber,
+        friendly_name: participantNumber.replace('whatsapp:', ''),
+        phoneNumber: participantNumber, // Keep whatsapp: prefix
         messages: [],
         unreadCount: 0,
         state: 'active' as const,
@@ -91,14 +90,22 @@ export default function WhatsAppClient() {
 
   // Load config from localStorage
   useEffect(() => {
+    console.log('\n🔧 ===== COMPONENT MOUNT: Loading config =====');
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
+        console.log('✅ Config loaded from localStorage:', {
+          accountSid: parsed.accountSid ? `${parsed.accountSid.slice(0,10)}...` : 'MISSING',
+          authToken: parsed.authToken ? 'present' : 'MISSING',
+          whatsappNumber: parsed.whatsappNumber || 'MISSING'
+        });
         setConfig(parsed);
       } catch (e) {
-        console.error('Failed to parse saved config:', e);
+        console.error('❌ Failed to parse saved config:', e);
       }
+    } else {
+      console.log('⚠️ No config found in localStorage');
     }
 
     // Load conversations from localStorage
@@ -127,14 +134,131 @@ export default function WhatsAppClient() {
     }
 
     setLoading(false);
-  }, []);
+  }, []); // Empty dependency array - only run once on mount
 
-  // Initial fetch when config is loaded
-  useEffect(() => {
-    if (!loading && config.accountSid && config.authToken && config.whatsappNumber) {
-      fetchMessages();
+  // Fetch messages
+  const fetchMessages = useCallback(async (cfg?: TwilioConfig) => {
+    console.log('\n🚀 ===== fetchMessages CALLED =====');
+    console.log('   Timestamp:', new Date().toISOString());
+    console.log('   Config source:', cfg ? 'provided as parameter' : 'using state config');
+    
+    const activeConfig = cfg || config;
+
+    console.log('🔍 Active config check:', {
+      accountSid: activeConfig.accountSid ? `${activeConfig.accountSid.slice(0,10)}...` : 'MISSING',
+      authToken: activeConfig.authToken ? 'present' : 'MISSING',
+      whatsappNumber: activeConfig.whatsappNumber || 'MISSING'
+    });
+
+    if (!activeConfig.accountSid || !activeConfig.authToken || !activeConfig.whatsappNumber) {
+      console.log('❌ fetchMessages: Missing credentials, ABORTING');
+      console.log('===== fetchMessages ENDED (failed) =====\n');
+      setIsConnected(false);
+      return;
     }
-  }, [loading, config.accountSid, config.authToken, config.whatsappNumber]);
+
+    try {
+      console.log('🌐 Making API call to /api/messages...');
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+
+      const params = new URLSearchParams({
+        accountSid: activeConfig.accountSid,
+        authToken: activeConfig.authToken,
+        whatsappNumber: activeConfig.whatsappNumber
+      });
+
+      const response = await fetch(`/api/messages?${params}`, {
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+      console.log('📡 API response status:', response.status);
+      console.log('📡 API response ok:', response.ok);
+
+      if (!response.ok) {
+        console.error('❌ API response not ok:', response.status, response.statusText);
+        throw new Error(`API request failed: ${response.status} ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      console.log('📦 API response received, success:', result.success);
+
+      if (result.success) {
+        console.log('📥 Fetched conversations (Messaging API):');
+        console.log('  Total conversations:', result.data.conversations.length);
+        const totalMessages = result.data.conversations.reduce((sum: number, c: Conversation) => sum + c.messages.length, 0);
+        console.log('  Total messages:', totalMessages);
+        result.data.conversations.forEach((conv: Conversation, i: number) => {
+          console.log(`  Conversation ${i+1}: ${conv.phoneNumber} (${conv.messages.length} messages)`);
+        });
+
+        // Replace with fetched conversations (don't merge to avoid stale data)
+        const fetched = result.data.conversations;
+
+        // Debug: Log all conversation SIDs
+        console.log('📋 Current conversations:', fetched.map((c: Conversation) => ({
+          sid: c.sid,
+          phoneNumber: c.phoneNumber,
+          messageCount: c.messages.length
+        })));
+
+        setConversations(fetched);
+        setIsConnected(true);
+        setError(null);
+
+        // Update selected conversation if it exists
+        setSelectedConversation(prev => {
+          if (!prev) return null;
+          const updated = fetched.find(
+            (c: Conversation) => c.phoneNumber === prev.phoneNumber
+          );
+          if (updated) {
+            console.log('🔄 Updating selected conversation with', updated.messages.length, 'messages');
+            return updated;
+          }
+          return prev;
+        });
+      } else {
+        setError(result.error);
+        setIsConnected(false);
+      }
+    } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') {
+        console.error('❌ API call timed out after 90 seconds');
+        setError('API request timed out');
+      } else {
+        console.error('❌ fetchMessages error:', err);
+        setError(err instanceof Error ? err.message : 'Failed to fetch messages');
+      }
+      setIsConnected(false);
+    } finally {
+      console.log('===== fetchMessages ENDED =====\n');
+      setLoading(false);
+    }
+  }, [config]);
+
+  // Save config to localStorage
+  const handleSaveConfig = (newConfig: TwilioConfig) => {
+    setConfig(newConfig);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(newConfig));
+    fetchMessages(newConfig);
+  };
+
+  // Fetch messages once config is loaded from localStorage
+  useEffect(() => {
+    console.log('\n🔄 ===== FETCH EFFECT TRIGGERED =====');
+    console.log('   loading:', loading);
+    console.log('   config.accountSid:', config.accountSid ? `${config.accountSid.slice(0,10)}...` : 'MISSING');
+    console.log('   config.authToken:', config.authToken ? 'present' : 'MISSING');
+    console.log('   config.whatsappNumber:', config.whatsappNumber || 'MISSING');
+
+    if (!loading && config.accountSid && config.authToken && config.whatsappNumber) {
+      console.log('✅ All conditions met - calling fetchMessages now!');
+      fetchMessages();
+    } else {
+      console.log('⏸️  Waiting for config to load...');
+    }
+  }, [loading, config.accountSid, config.authToken, config.whatsappNumber, fetchMessages]);
 
   // Save conversations to localStorage whenever they change
   // Only save conversations with valid phone numbers
@@ -169,75 +293,6 @@ export default function WhatsAppClient() {
     }
   }, [conversations, loading]);
 
-  // Save config to localStorage
-  const handleSaveConfig = (newConfig: TwilioConfig) => {
-    setConfig(newConfig);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(newConfig));
-    fetchMessages(newConfig);
-  };
-
-  // Fetch messages
-  const fetchMessages = useCallback(async (cfg?: TwilioConfig) => {
-    const activeConfig = cfg || config;
-    
-    if (!activeConfig.accountSid || !activeConfig.authToken || !activeConfig.whatsappNumber) {
-      setIsConnected(false);
-      return;
-    }
-
-    try {
-      const params = new URLSearchParams({
-        accountSid: activeConfig.accountSid,
-        authToken: activeConfig.authToken,
-        whatsappNumber: activeConfig.whatsappNumber,
-      });
-
-      const response = await fetch(`/api/messages?${params}`);
-      const result = await response.json();
-
-      if (result.success) {
-        // Merge fetched conversations with existing ones
-        const merged: Conversation[] = [];
-        const conversationsMap = new Map<string, Conversation>();
-        
-        // First, add all existing conversations to the map
-        conversations.forEach((conv: Conversation) => {
-          conversationsMap.set(conv.phoneNumber, conv);
-        });
-        
-        // Then update/add fetched conversations
-        result.data.conversations.forEach((fetched: Conversation) => {
-          conversationsMap.set(fetched.phoneNumber, fetched);
-        });
-        
-        // Convert map back to array
-        conversationsMap.forEach(conv => merged.push(conv));
-
-        setConversations(merged);
-        setIsConnected(true);
-        setError(null);
-
-        // Update selected conversation if it exists - use the same conversation object from merged array
-        if (selectedConversation) {
-          const updated = merged.find(
-            (c: Conversation) => c.phoneNumber === selectedConversation.phoneNumber
-          );
-          if (updated) {
-            setSelectedConversation(updated);
-          }
-        }
-      } else {
-        setError(result.error);
-        setIsConnected(false);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch messages');
-      setIsConnected(false);
-    } finally {
-      setLoading(false);
-    }
-  }, [config]);
-
   // Auto-update selected conversation when conversations change
   useEffect(() => {
     if (selectedConversation) {
@@ -245,23 +300,143 @@ export default function WhatsAppClient() {
         (c: Conversation) => c.phoneNumber === selectedConversation.phoneNumber
       );
       if (updated && updated.messages.length !== selectedConversation.messages.length) {
+        console.log('🔄 Auto-updating selected conversation from', selectedConversation.messages.length, 'to', updated.messages.length, 'messages');
         setSelectedConversation(updated);
       }
     }
   }, [conversations, selectedConversation]);
 
-  // Polling for new messages every 10 seconds
+  const conversationsRef = useRef<Conversation[]>([]);
+
+  // Keep ref in sync with conversations state
   useEffect(() => {
-    if (!config.accountSid || !config.authToken || !config.whatsappNumber) return;
+    conversationsRef.current = conversations;
+  }, [conversations]);
 
-    const interval = setInterval(() => {
-      fetchMessages();
-    }, 10000); // 10 seconds
+  // Listen for SSE updates (webhook messages)
+  useEffect(() => {
+    if (!config.whatsappNumber) return;
 
-    return () => {
-      clearInterval(interval);
+    console.log('📡 Connecting to SSE for real-time updates');
+
+    const eventSource = new EventSource('/api/sse');
+
+    eventSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        console.log('📡 SSE message received:', data.type);
+
+        if (data.type === 'new_message') {
+          const newMessage: Message = data.message;
+          console.log('📨 New message from SSE:', newMessage.sid, 'from:', newMessage.from);
+
+          // Ensure whatsappNumber has whatsapp: prefix
+          const ourNumber = config.whatsappNumber.startsWith('whatsapp:')
+            ? config.whatsappNumber
+            : `whatsapp:+${config.whatsappNumber.replace(/\+/g, '')}`;
+
+          console.log('🔍 SSE: ourNumber:', ourNumber);
+
+          // Convert single message to conversation
+          const webhookConversations = messagesToConversations([newMessage], ourNumber);
+
+          console.log('🔍 SSE: webhookConversations created:', webhookConversations.length);
+          if (webhookConversations.length > 0) {
+            console.log('🔍 SSE: webhookConv.phoneNumber:', webhookConversations[0].phoneNumber);
+          }
+
+          if (webhookConversations.length === 0) {
+            console.log('⚠️ SSE: No conversations created from message, skipping');
+            return;
+          }
+
+          const webhookConv = webhookConversations[0];
+          console.log('🔍 SSE: webhookConv.phoneNumber:', webhookConv.phoneNumber);
+
+          // Update conversations state
+          setConversations(prevConversations => {
+            console.log('🔍 SSE: Updating conversations, current count:', prevConversations.length);
+            const updated = [...prevConversations];
+            const existingIndex = updated.findIndex(c => c.phoneNumber === webhookConv.phoneNumber);
+
+            console.log('🔍 SSE: existingIndex:', existingIndex);
+
+            if (existingIndex >= 0) {
+              // Update existing conversation
+              const existing = updated[existingIndex];
+              const allMessages = [...existing.messages];
+
+              // Add new message if not already present
+              if (!allMessages.find(msg => msg.sid === newMessage.sid)) {
+                allMessages.push(newMessage);
+                allMessages.sort((a, b) =>
+                  new Date(a.dateCreated).getTime() - new Date(b.dateCreated).getTime()
+                );
+                console.log('✅ SSE: Added new message to conversation, total messages:', allMessages.length);
+              } else {
+                console.log('⚠️ SSE: Message already exists in conversation');
+              }
+
+              updated[existingIndex] = {
+                ...existing,
+                messages: allMessages,
+                date_updated: newMessage.dateCreated,
+              };
+            } else {
+              // Add new conversation
+              console.log('✅ SSE: Creating new conversation');
+              updated.push(webhookConv);
+            }
+
+            console.log('🔍 SSE: Returning updated conversations, count:', updated.length);
+            return updated;
+          });
+
+          // Update selected conversation if it's the active one
+          setSelectedConversation(prev => {
+            if (!prev) {
+              console.log('⚠️ SSE: No selected conversation');
+              return null;
+            }
+            
+            console.log('🔍 SSE: Checking if selected conversation matches');
+            console.log('   Selected:', prev.phoneNumber);
+            console.log('   Webhook:', webhookConv.phoneNumber);
+            
+            if (prev.phoneNumber === webhookConv.phoneNumber) {
+              const allMessages = [...prev.messages];
+              if (!allMessages.find(msg => msg.sid === newMessage.sid)) {
+                allMessages.push(newMessage);
+                allMessages.sort((a, b) =>
+                  new Date(a.dateCreated).getTime() - new Date(b.dateCreated).getTime()
+                );
+                console.log('✅ SSE: Updated selected conversation, total messages:', allMessages.length);
+              }
+              return {
+                ...prev,
+                messages: allMessages,
+              };
+            }
+            
+            console.log('⚠️ SSE: Selected conversation does not match webhook');
+            return prev;
+          });
+        }
+      } catch (error) {
+        console.error('❌ Error processing SSE message:', error);
+      }
     };
-  }, [config.accountSid, config.authToken, config.whatsappNumber, fetchMessages]);
+
+    eventSource.onerror = (error) => {
+      console.error('❌ SSE connection error:', error);
+    };
+
+    // Cleanup on unmount
+    return () => {
+      console.log('📡 Disconnecting SSE');
+      eventSource.close();
+    };
+  }, [config.whatsappNumber, selectedConversation]);
 
   // Send message
   const handleSendMessage = async (body: string) => {
@@ -327,7 +502,7 @@ export default function WhatsAppClient() {
         return null;
       });
 
-      // Polling will refresh and show incoming messages
+      // Note: No need to refresh messages - webhooks will handle incoming updates
     } catch (err) {
       console.error('❌ Failed to send message:', err);
       throw err;

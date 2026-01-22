@@ -18,6 +18,7 @@ export interface Message {
     size: number;
     content_type: string;
     filename: string;
+    url?: string;
   }> | null;
   delivery?: {
     total: number;

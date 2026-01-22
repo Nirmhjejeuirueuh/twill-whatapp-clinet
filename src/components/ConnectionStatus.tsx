@@ -29,23 +29,6 @@ export default function ConnectionStatus({
         </div>
       )}
 
-      {/* Not Connected State */}
-      {!isLoading && !isConnected && !error && (
-        <div className="bg-yellow-600 text-white px-5 md:px-6 py-3 md:py-3.5 flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-4">
-          <div className="flex items-center gap-2">
-            <WifiOff className="w-5 h-5" />
-            <span className="text-sm md:text-base">Not connected. Please configure your Twilio credentials.</span>
-          </div>
-          <button
-            onClick={onOpenSettings}
-            className="px-4 md:px-5 py-2 bg-white/20 rounded-lg hover:bg-white/30 transition-colors text-sm md:text-base flex items-center gap-2"
-          >
-            <Settings className="w-4 h-4 md:w-5 md:h-5" />
-            Settings
-          </button>
-        </div>
-      )}
-
       {/* Error State */}
       {error && (
         <div className="bg-red-600 text-white px-5 md:px-6 py-3 md:py-4 flex flex-col sm:flex-row items-center justify-between gap-3">

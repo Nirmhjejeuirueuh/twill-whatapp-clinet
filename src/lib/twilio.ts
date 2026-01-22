@@ -56,56 +56,60 @@ export async function fetchMessages(
   console.log('   Using AccountSID:', accountSid?.substring(0, 10) || 'from env');
 
   try {
-    // Calculate date filter - only fetch messages from last 30 days
+    // Calculate date filter - fetch messages from last 30 days (increased from 7)
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-    console.log('   → Fetching inbound messages (last 30 days)...');
     const inboundMessages = await client.messages.list({
       to: `whatsapp:${ourNumber}`,
       limit,
       dateSentAfter: thirtyDaysAgo,
     });
-    console.log(`   ✓ Found ${inboundMessages.length} inbound messages`);
 
-    console.log('   → Fetching outbound messages (last 30 days)...');
     const outboundMessages = await client.messages.list({
       from: `whatsapp:${ourNumber}`,
       limit,
       dateSentAfter: thirtyDaysAgo,
     });
-    console.log(`   ✓ Found ${outboundMessages.length} outbound messages`);
-
-    // Debug: Log sample messages
-    if (inboundMessages.length > 0) {
-      console.log('   📨 Sample inbound messages:');
-      inboundMessages.slice(0, 2).forEach((msg, i) => {
-        console.log(`     ${i+1}. From: ${msg.from}, Body: "${msg.body?.substring(0, 30)}...", Date: ${msg.dateCreated}`);
-      });
-    }
-    if (outboundMessages.length > 0) {
-      console.log('   📤 Sample outbound messages:');
-      outboundMessages.slice(0, 2).forEach((msg, i) => {
-        console.log(`     ${i+1}. To: ${msg.to}, Body: "${msg.body?.substring(0, 30)}...", Date: ${msg.dateCreated}`);
-      });
-    }
 
     // Convert to our Message format
-    const allMessages: Message[] = [...inboundMessages, ...outboundMessages].map((msg) => ({
-      sid: msg.sid,
-      conversation_sid: '', // Not used in Messaging API
-      body: msg.body || '',
-      author: msg.from || '', // For compatibility
-      from: msg.from || '', // Sender
-      to: msg.to || '', // Recipient
-      participant_sid: null,
-      direction: msg.direction === 'inbound' ? 'inbound' : 'outbound',
-      index: 0, // Not used in Messaging API
-      dateCreated: msg.dateCreated?.toISOString() || new Date().toISOString(),
-      dateUpdated: msg.dateUpdated?.toISOString() || null,
-      media: msg.subresourceUris?.media ? [] : null,
-      delivery: null,
-      attributes: undefined,
+    const messagesToProcess = [...inboundMessages, ...outboundMessages];
+
+    const allMessages = await Promise.all(messagesToProcess.map(async (msg) => {
+      let mediaData: Message['media'] = null;
+
+      // Fetch media details if message has media
+      if (msg.subresourceUris?.media) {
+        try {
+          const mediaList = await client.messages(msg.sid).media.list();
+          mediaData = mediaList.map(media => ({
+            sid: media.sid,
+            size: (media as any).contentLength || 0,
+            content_type: (media as any).contentType || '',
+            filename: (media as any).filename || `media_${media.sid}`,
+            url: `/api/media/${msg.sid}/${media.sid}?accountSid=${accountSid || process.env.TWILIO_ACCOUNT_SID}&authToken=${authToken || process.env.TWILIO_AUTH_TOKEN}`
+          }));
+        } catch (mediaError) {
+          console.warn(`⚠️ Could not fetch media for message ${msg.sid}:`, mediaError);
+        }
+      }
+
+      return {
+        sid: msg.sid,
+        conversation_sid: '', // Not used in Messaging API
+        body: msg.body || '',
+        author: msg.from || '', // For compatibility
+        from: msg.from || '', // Sender
+        to: msg.to || '', // Recipient
+        participant_sid: null,
+        direction: (msg.direction === 'inbound' ? 'inbound' : 'outbound') as 'inbound' | 'outbound',
+        index: 0, // Not used in Messaging API
+        dateCreated: msg.dateCreated?.toISOString() || new Date().toISOString(),
+        dateUpdated: msg.dateUpdated?.toISOString() || null,
+        media: mediaData,
+        delivery: null,
+        attributes: undefined,
+      };
     }));
 
     // Sort by date
@@ -113,7 +117,7 @@ export async function fetchMessages(
       (a, b) => new Date(a.dateCreated).getTime() - new Date(b.dateCreated).getTime()
     );
 
-    console.log(`✅ Successfully fetched ${allMessages.length} total messages from Twilio Messaging API`);
+    console.log(`✅ Fetched ${allMessages.length} messages (${inboundMessages.length} inbound, ${outboundMessages.length} outbound)`);
     return allMessages;
   } catch (error: any) {
     console.error('❌ Error fetching messages from Twilio Messaging API:');
@@ -150,28 +154,54 @@ export async function getOrCreateConversation(
     try {
       const existing = await client.conversations.v1.conversations(uniqueName).fetch();
       console.log('✓ Found existing conversation:', existing.sid);
+
+      // Check if the conversation already has the WhatsApp participant
+      const participants = await client.conversations.v1
+        .conversations(existing.sid)
+        .participants.list();
+
+      const whatsappParticipant = participants.find(
+        (p) => p.messagingBinding?.address === formattedPhone
+      );
+
+      if (!whatsappParticipant) {
+        console.log('⚠️  Conversation exists but missing WhatsApp participant, adding...');
+        // Add the missing WhatsApp participant
+        await client.conversations.v1
+          .conversations(existing.sid)
+          .participants.create({
+            'messagingBinding.address': formattedPhone,
+            'messagingBinding.proxyAddress': formattedOurNumber,
+          });
+        console.log('✓ Added WhatsApp participant to existing conversation');
+      } else {
+        console.log('✓ Conversation already has WhatsApp participant');
+      }
+
       return existing.sid;
     } catch (error: any) {
       if (error.status === 404) {
-        // Conversation doesn't exist, create it WITH participants using ConversationWithParticipants API
-        console.log('→ Creating new conversation with WhatsApp participant...');
+        // Conversation doesn't exist, create it and add participants
+        console.log('→ Creating new conversation and adding WhatsApp participant...');
 
-        // Create conversation with participant in one call (recommended for WhatsApp)
-        const participantBinding = JSON.stringify({
-          messaging_binding: {
-            address: formattedPhone,
-            proxy_address: formattedOurNumber
-          }
-        });
-
-        const conversationWithParticipant = await client.conversations.v1.conversationWithParticipants.create({
+        // Create conversation first
+        const conversation = await client.conversations.v1.conversations.create({
           friendlyName: formattedPhone,
           uniqueName: uniqueName,
-          participant: [participantBinding]
         });
 
-        console.log('✓ Created conversation with participant:', conversationWithParticipant.sid);
-        return conversationWithParticipant.sid;
+        console.log('✓ Created conversation:', conversation.sid);
+
+        // Add WhatsApp participant using the correct format
+        await client.conversations.v1
+          .conversations(conversation.sid)
+          .participants.create({
+            'messagingBinding.address': formattedPhone,
+            'messagingBinding.proxyAddress': formattedOurNumber,
+          });
+
+        console.log('✓ Added WhatsApp participant to conversation');
+        return conversation.sid;
       }
       throw error;
     }
@@ -301,12 +331,20 @@ export async function fetchConversations(
         .conversations(conv.sid)
         .participants.list();
 
+      console.log(`  Conv ${conv.sid}: ${participants.length} participants`);
+      participants.forEach((p, i) => {
+        console.log(`    Participant ${i}: identity=${p.identity}, type=${p.messagingBinding?.type}, address=${p.messagingBinding?.address}`);
+      });
+
       // Find the WhatsApp participant (not us)
       const whatsappParticipant = participants.find(
         (p) => p.messagingBinding?.type === 'whatsapp'
       );
 
-      if (!whatsappParticipant) continue; // Skip if no WhatsApp participant
+      if (!whatsappParticipant) {
+        console.log(`  ⚠️  Skipping ${conv.sid} - no WhatsApp participant found`);
+        continue; // Skip if no WhatsApp participant
+      }
 
       const phoneNumber = whatsappParticipant.messagingBinding?.address || '';
 

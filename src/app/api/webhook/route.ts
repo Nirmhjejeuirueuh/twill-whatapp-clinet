@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { messageStore } from '@/lib/store';
+import { broadcastToSSE } from '../sse/route';
 import { Message, Conversation } from '@/types';
 
 /**
@@ -84,6 +85,12 @@ export async function POST(request: NextRequest) {
 
     // Store the message
     messageStore.addMessage(message);
+
+    // Broadcast to SSE clients for real-time updates
+    broadcastToSSE({
+      type: 'new_message',
+      message: message,
+    });
 
     console.log('✅ Message stored successfully in MessageStore');
     console.log('📦 Total messages in store:', messageStore.getMessages().length);
