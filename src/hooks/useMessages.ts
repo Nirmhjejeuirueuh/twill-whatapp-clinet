@@ -7,7 +7,6 @@ interface UseMessagesOptions {
   accountSid: string;
   authToken: string;
   whatsappNumber: string;
-  pollingInterval?: number;
 }
 
 interface UseMessagesReturn {
@@ -25,7 +24,6 @@ export function useMessages({
   accountSid,
   authToken,
   whatsappNumber,
-  pollingInterval = 5000,
 }: UseMessagesOptions): UseMessagesReturn {
   const [messages, setMessages] = useState<Message[]>([]);
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -94,28 +92,20 @@ export function useMessages({
           throw new Error(result.error);
         }
 
-        // Refresh messages after sending
-        await fetchMessagesFromApi();
+        // Note: We don't refresh messages here anymore - webhooks will handle updates
+        console.log('Message sent successfully, webhook will update conversation');
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to send message');
         throw err;
       }
     },
-    [accountSid, authToken, fetchMessagesFromApi]
+    [accountSid, authToken]
   );
 
-  // Initial fetch
+  // Initial fetch only (no polling)
   useEffect(() => {
     fetchMessagesFromApi();
   }, [fetchMessagesFromApi]);
-
-  // Polling for new messages
-  useEffect(() => {
-    if (!accountSid || !authToken || !whatsappNumber) return;
-
-    const interval = setInterval(fetchMessagesFromApi, pollingInterval);
-    return () => clearInterval(interval);
-  }, [accountSid, authToken, whatsappNumber, pollingInterval, fetchMessagesFromApi]);
 
   return {
     messages,

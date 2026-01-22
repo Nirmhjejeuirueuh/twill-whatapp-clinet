@@ -1,13 +1,14 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import Sidebar from './Sidebar';
 import ChatWindow from './ChatWindow';
 import EmptyState from './EmptyState';
 import SettingsModal from './SettingsModal';
 import NewChatModal from './NewChatModal';
 import ConnectionStatus from './ConnectionStatus';
-import { Conversation } from '@/types';
+import { Conversation, Message } from '@/types';
+import { messageStore } from '@/lib/store';
 import { Plus } from 'lucide-react';
 
 interface TwilioConfig {
@@ -18,6 +19,61 @@ interface TwilioConfig {
 
 const STORAGE_KEY = 'twilio_config';
 const CONVERSATIONS_KEY = 'whatsapp_conversations';
+
+// Helper function to convert messages to conversations
+function messagesToConversations(messages: Message[], ourNumber: string): Conversation[] {
+  const conversationsMap = new Map<string, Conversation>();
+
+  messages.forEach(message => {
+    // Determine the other participant's number
+    let participantNumber = '';
+    if (message.from && message.from !== ourNumber) {
+      participantNumber = message.from.replace('whatsapp:', '');
+    } else if (message.to && message.to !== ourNumber) {
+      participantNumber = message.to.replace('whatsapp:', '');
+    }
+
+    if (!participantNumber) return; // Skip if we can't determine participant
+
+    // Get or create conversation
+    let conversation = conversationsMap.get(participantNumber);
+    if (!conversation) {
+      conversation = {
+        sid: `conv_${participantNumber}`,
+        account_sid: '', // Not available from webhook
+        chat_service_sid: '', // Not available from webhook
+        friendly_name: participantNumber,
+        phoneNumber: participantNumber,
+        messages: [],
+        unreadCount: 0,
+        state: 'active' as const,
+        date_created: message.dateCreated,
+        date_updated: message.dateCreated,
+      };
+      conversationsMap.set(participantNumber, conversation);
+    }
+
+    // Add message to conversation
+    conversation.messages.push(message);
+
+    // Update conversation's last updated time
+    if (new Date(message.dateCreated) > new Date(conversation.date_updated)) {
+      conversation.date_updated = message.dateCreated;
+    }
+  });
+
+  // Sort messages within each conversation by date
+  conversationsMap.forEach(conversation => {
+    conversation.messages.sort((a, b) =>
+      new Date(a.dateCreated).getTime() - new Date(b.dateCreated).getTime()
+    );
+  });
+
+  // Convert to array and sort by most recent message
+  return Array.from(conversationsMap.values()).sort((a, b) =>
+    new Date(b.date_updated).getTime() - new Date(a.date_updated).getTime()
+  );
+}
 
 export default function WhatsAppClient() {
   const [config, setConfig] = useState<TwilioConfig>({
@@ -72,6 +128,13 @@ export default function WhatsAppClient() {
 
     setLoading(false);
   }, []);
+
+  // Initial fetch when config is loaded
+  useEffect(() => {
+    if (!loading && config.accountSid && config.authToken && config.whatsappNumber) {
+      fetchMessages();
+    }
+  }, [loading, config.accountSid, config.authToken, config.whatsappNumber]);
 
   // Save conversations to localStorage whenever they change
   // Only save conversations with valid phone numbers
@@ -133,14 +196,6 @@ export default function WhatsAppClient() {
       const result = await response.json();
 
       if (result.success) {
-        console.log('📥 Fetched conversations (Messaging API):');
-        console.log('  Total conversations:', result.data.conversations.length);
-        const totalMessages = result.data.conversations.reduce((sum: number, c: Conversation) => sum + c.messages.length, 0);
-        console.log('  Total messages:', totalMessages);
-        result.data.conversations.forEach((conv: Conversation, i: number) => {
-          console.log(`  Conversation ${i+1}: ${conv.phoneNumber} (${conv.messages.length} messages)`);
-        });
-
         // Merge fetched conversations with existing ones
         const merged: Conversation[] = [];
         const conversationsMap = new Map<string, Conversation>();
@@ -158,13 +213,6 @@ export default function WhatsAppClient() {
         // Convert map back to array
         conversationsMap.forEach(conv => merged.push(conv));
 
-        // Debug: Log all conversation SIDs
-        console.log('📋 Current conversations:', merged.map(c => ({
-          sid: c.sid,
-          phoneNumber: c.phoneNumber,
-          messageCount: c.messages.length
-        })));
-
         setConversations(merged);
         setIsConnected(true);
         setError(null);
@@ -175,7 +223,6 @@ export default function WhatsAppClient() {
             (c: Conversation) => c.phoneNumber === selectedConversation.phoneNumber
           );
           if (updated) {
-            console.log('🔄 Updating selected conversation with', updated.messages.length, 'messages');
             setSelectedConversation(updated);
           }
         }
@@ -198,20 +245,23 @@ export default function WhatsAppClient() {
         (c: Conversation) => c.phoneNumber === selectedConversation.phoneNumber
       );
       if (updated && updated.messages.length !== selectedConversation.messages.length) {
-        console.log('🔄 Auto-updating selected conversation from', selectedConversation.messages.length, 'to', updated.messages.length, 'messages');
         setSelectedConversation(updated);
       }
     }
   }, [conversations, selectedConversation]);
 
-  // Initial fetch and polling
+  // Polling for new messages every 10 seconds
   useEffect(() => {
-    if (config.accountSid && config.authToken && config.whatsappNumber) {
+    if (!config.accountSid || !config.authToken || !config.whatsappNumber) return;
+
+    const interval = setInterval(() => {
       fetchMessages();
-      const interval = setInterval(() => fetchMessages(), 2000); // 2 seconds for real-time updates
-      return () => clearInterval(interval);
-    }
-  }, [config.accountSid, config.authToken, config.whatsappNumber]);
+    }, 10000); // 10 seconds
+
+    return () => {
+      clearInterval(interval);
+    };
+  }, [config.accountSid, config.authToken, config.whatsappNumber, fetchMessages]);
 
   // Send message
   const handleSendMessage = async (body: string) => {
@@ -245,45 +295,39 @@ export default function WhatsAppClient() {
         throw new Error(result.error);
       }
 
-      console.log('✅ Message sent successfully, adding to conversation...');
+      console.log('✅ Message sent successfully, webhook will handle conversation updates');
       console.log('  Sent message data:', result.data);
 
-      // Add the sent message to the conversation immediately
+      // Add the sent message to the conversation immediately for better UX
       const sentMessage = result.data;
-      console.log('  Current conversations count:', conversations.length);
-      console.log('  Selected conversation:', selectedConversation.phoneNumber);
 
       setConversations(prev => {
         const updated = prev.map(conv => {
           if (conv.phoneNumber === selectedConversation.phoneNumber) {
-            console.log('  ✓ Found matching conversation, adding message');
             return {
               ...conv,
               messages: [...conv.messages, sentMessage],
-              lastMessage: sentMessage,
+              date_updated: sentMessage.dateCreated,
             };
           }
           return conv;
         });
-        console.log('  Updated conversations:', updated);
         return updated;
       });
 
       // Update selected conversation
       setSelectedConversation(prev => {
         if (prev) {
-          console.log('  ✓ Updating selected conversation with new message');
           return {
             ...prev,
             messages: [...prev.messages, sentMessage],
-            lastMessage: sentMessage,
+            date_updated: sentMessage.dateCreated,
           };
         }
         return null;
       });
 
-      // Refresh messages in background
-      fetchMessages();
+      // Polling will refresh and show incoming messages
     } catch (err) {
       console.error('❌ Failed to send message:', err);
       throw err;

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { messageStore } from '@/lib/store';
-import { Message } from '@/types';
+import { Message, Conversation } from '@/types';
 
 /**
  * Twilio Messaging API Webhook Handler for WhatsApp
@@ -15,7 +15,8 @@ import { Message } from '@/types';
  * - WaId: WhatsApp ID
  */
 export async function POST(request: NextRequest) {
-  console.log('\n🔔 Webhook received (Messaging API)');
+  console.log('\n🔔 ===== WEBHOOK RECEIVED =====');
+  console.log('Timestamp:', new Date().toISOString());
 
   try {
     // Messaging API sends form data (not JSON like Conversations API)
@@ -61,6 +62,8 @@ export async function POST(request: NextRequest) {
       conversation_sid: '', // Not used in Messaging API
       body: payload.Body || '',
       author: payload.From, // The sender
+      from: payload.From, // Sender phone number
+      to: payload.To, // Recipient phone number
       participant_sid: null,
       direction: 'inbound',
       index: 0, // Not used in Messaging API
@@ -82,7 +85,9 @@ export async function POST(request: NextRequest) {
     // Store the message
     messageStore.addMessage(message);
 
-    console.log('✅ Message stored successfully');
+    console.log('✅ Message stored successfully in MessageStore');
+    console.log('📦 Total messages in store:', messageStore.getMessages().length);
+    console.log('🔔 ===== WEBHOOK COMPLETED =====\n');
 
     // Acknowledge receipt (Messaging API expects empty 200 OK)
     return new Response('', { status: 200 });
