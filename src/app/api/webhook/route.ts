@@ -6,7 +6,7 @@ import { Message, Conversation } from '@/types';
 /**
  * Twilio Messaging API Webhook Handler for WhatsApp
  *
- * Messaging API sends webhooks as form data for incoming messages:
+ * Messaging API sends webhooks as form data for incoming messages and outgoing message confirmations:
  * - MessageSid: The message SID
  * - Body: The message content
  * - From: The sender's WhatsApp number (whatsapp:+1234567890)
@@ -33,26 +33,33 @@ export async function POST(request: NextRequest) {
       WaId: formData.get('WaId') as string,
     };
 
-    console.log('📨 Incoming WhatsApp message:');
-    console.log('  Message SID:', payload.MessageSid);
-    console.log('  From:', payload.From);
-    console.log('  To:', payload.To);
-    console.log('  Body:', payload.Body);
-    console.log('  Profile Name:', payload.ProfileName);
+    // Determine message direction based on the 'To' field
+    // If 'To' matches our WhatsApp number, it's an inbound message
+    // If 'From' matches our WhatsApp number, it's an outbound message confirmation
+    const ourNumber = process.env.TWILIO_WHATSAPP_NUMBER;
+    const isInbound = payload.To === `whatsapp:${ourNumber}`;
+    const direction = isInbound ? 'inbound' : 'outbound';
 
-    // Handle media if present
+    console.log('  Direction:', direction);
+    console.log('  Our number:', ourNumber);
+
+    // Handle media if present (for inbound messages)
+    // For outbound messages, media URLs are not included in webhook
     const numMedia = parseInt(payload.NumMedia || '0');
     const mediaUrls: string[] = [];
     const mediaTypes: string[] = [];
 
-    for (let i = 0; i < numMedia; i++) {
-      const url = formData.get(`MediaUrl${i}`) as string;
-      const type = formData.get(`MediaContentType${i}`) as string;
-      if (url) mediaUrls.push(url);
-      if (type) mediaTypes.push(type);
+    if (isInbound) {
+      // Only process media for inbound messages
+      for (let i = 0; i < numMedia; i++) {
+        const url = formData.get(`MediaUrl${i}`) as string;
+        const type = formData.get(`MediaContentType${i}`) as string;
+        if (url) mediaUrls.push(url);
+        if (type) mediaTypes.push(type);
+      }
     }
 
-    if (numMedia > 0) {
+    if (numMedia > 0 && isInbound) {
       console.log('  Media URLs:', mediaUrls);
       console.log('  Media Types:', mediaTypes);
     }
@@ -62,19 +69,20 @@ export async function POST(request: NextRequest) {
       sid: payload.MessageSid,
       conversation_sid: '', // Not used in Messaging API
       body: payload.Body || '',
-      author: payload.From, // The sender
+      author: isInbound ? payload.From : payload.To, // For outbound, author is the recipient
       from: payload.From, // Sender phone number
       to: payload.To, // Recipient phone number
       participant_sid: null,
-      direction: 'inbound',
+      direction: direction,
       index: 0, // Not used in Messaging API
       dateCreated: new Date().toISOString(),
       dateUpdated: null,
-      media: mediaUrls.length > 0 ? mediaUrls.map((url, i) => ({
+      media: isInbound && mediaUrls.length > 0 ? mediaUrls.map((url, i) => ({
         sid: `media_${i}`,
         size: 0, // Size not provided in webhook
         content_type: mediaTypes[i] || 'unknown',
         filename: `media_${i}`,
+        url: url, // Include the URL for media
       })) : null,
       delivery: null,
       attributes: JSON.stringify({

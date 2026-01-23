@@ -238,7 +238,8 @@ export async function sendMessage(
   body: string,
   from: string,
   accountSid?: string,
-  authToken?: string
+  authToken?: string,
+  mediaUrl?: string
 ): Promise<Message> {
   const client = getTwilioClient(accountSid, authToken);
 
@@ -246,15 +247,58 @@ export async function sendMessage(
   console.log('   To:', to);
   console.log('   From:', from);
   console.log('   Body:', body);
+  console.log('   Media URL:', mediaUrl ? `${mediaUrl.substring(0, 60)}...` : 'none');
+
+  // Validate WhatsApp number formats
+  if (!to.startsWith('whatsapp:')) {
+    console.error('❌ Recipient number must start with whatsapp:');
+    throw new Error('Recipient number must be in format: whatsapp:+1234567890');
+  }
+
+  if (!from.startsWith('whatsapp:')) {
+    console.error('❌ Sender number must start with whatsapp:');
+    throw new Error('Sender number must be in format: whatsapp:+1234567890');
+  }
 
   try {
-    const message = await client.messages.create({
+    const messageParams: any = {
       to: to,
       from: from,
       body: body,
-    });
+    };
+
+    if (mediaUrl) {
+      messageParams.mediaUrl = mediaUrl;
+
+      // Verify media URL is accessible
+      try {
+        const response = await fetch(mediaUrl, { method: 'HEAD' });
+        if (!response.ok) {
+          console.warn('⚠️ Media URL may not be accessible:', response.status);
+        } else {
+          console.log('✅ Media URL is accessible');
+        }
+      } catch (error) {
+        console.warn('⚠️ Could not verify media URL accessibility:', error);
+      }
+    }
+
+    const message = await client.messages.create(messageParams);
 
     console.log('✅ Message sent via Messaging API:', message.sid);
+    console.log('   Status:', message.status);
+    console.log('   Error Code:', message.errorCode);
+    console.log('   Error Message:', message.errorMessage);
+
+    // Check if message was actually accepted for delivery
+    if (message.status === 'failed') {
+      console.error('❌ Message failed to send:', message.errorMessage);
+      throw new Error(`Message failed: ${message.errorMessage}`);
+    }
+
+    if (message.errorCode) {
+      console.warn('⚠️ Message has error code:', message.errorCode, message.errorMessage);
+    }
 
     return {
       sid: message.sid,
@@ -265,6 +309,13 @@ export async function sendMessage(
       status: message.status as Message['status'],
       dateCreated: message.dateCreated?.toISOString() || new Date().toISOString(),
       dateSent: message.dateSent?.toISOString() || null,
+      media: mediaUrl ? [{
+        sid: `media_${message.sid}`,
+        size: 0, // We don't know the size yet
+        content_type: 'image/jpeg', // Default assumption, could be improved
+        filename: 'image.jpg', // Default filename
+        url: mediaUrl,
+      }] : null,
     };
   } catch (error) {
     console.error('❌ Error sending message via Messaging API:', error);

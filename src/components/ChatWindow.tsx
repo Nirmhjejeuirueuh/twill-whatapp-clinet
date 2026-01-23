@@ -38,8 +38,11 @@ export default function ChatWindow({
   const [sending, setSending] = useState(false);
   const [showAttachMenu, setShowAttachMenu] = useState(false);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [selectedImageFile, setSelectedImageFile] = useState<File | null>(null);
+  const [viewingImage, setViewingImage] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const scrollToBottom = (smooth = false) => {
     messagesEndRef.current?.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto' });
@@ -50,22 +53,11 @@ export default function ChatWindow({
     scrollToBottom(false); // Instant scroll to prevent animation from top
   }, [conversation.messages]);
 
-  const handleSend = async () => {
-    if (!message.trim() || sending) return;
-
-    console.log('📝 ChatWindow handleSend called with message:', message.trim());
-
-    setSending(true);
-    try {
-      await onSendMessage(message.trim());
-      setMessage('');
-    } catch (error) {
-      console.error('❌ Error in ChatWindow handleSend:', error);
-    } finally {
-      setSending(false);
-      inputRef.current?.focus();
-    }
-  };
+  // Scroll to bottom when chat window opens or conversation changes
+  useEffect(() => {
+    console.log('📜 ChatWindow: opened/changed, scrolling to latest messages');
+    scrollToBottom(false);
+  }, [conversation.phoneNumber]); // Run when conversation changes
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -145,6 +137,82 @@ export default function ChatWindow({
     }
   });
 
+  const handleImageSelect = () => {
+    fileInputRef.current?.click();
+    setShowAttachMenu(false);
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file && file.type.startsWith('image/')) {
+      setSelectedImageFile(file);
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        setSelectedImage(e.target?.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleRemoveImage = () => {
+    setSelectedImage(null);
+    setSelectedImageFile(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const handleSend = async () => {
+    if (sending) return;
+
+    const textToSend = message.trim();
+    if (!textToSend && !selectedImageFile) return;
+
+    setSending(true);
+    try {
+      if (selectedImageFile) {
+        // Send with image
+        const formData = new FormData();
+        formData.append('to', conversation.phoneNumber);
+        formData.append('body', textToSend);
+        formData.append('media', selectedImageFile);
+
+        const response = await fetch('/api/send', {
+          method: 'POST',
+          body: formData,
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to send message with image');
+        }
+
+        const result = await response.json();
+        if (!result.success) {
+          throw new Error(result.error || 'Failed to send message');
+        }
+
+        // Add the sent message to the conversation immediately
+        const sentMessage = result.data;
+        // Update conversation with the new message
+        // Note: This would need access to conversation state management
+        // For now, the message will appear when webhook updates or messages are refetched
+
+        // Clear the image after sending
+        handleRemoveImage();
+      } else {
+        // Send text only
+        await onSendMessage(textToSend);
+      }
+
+      setMessage('');
+    } catch (error) {
+      console.error('Error sending message:', error);
+      // You might want to show an error toast here
+    } finally {
+      setSending(false);
+    }
+  };
+
   return (
     <div className="flex-1 flex flex-col bg-[#0b141a] h-full min-w-0">
       {/* Header */}
@@ -223,7 +291,7 @@ export default function ChatWindow({
                             className="rounded-lg overflow-hidden cursor-pointer" 
                             onClick={() => {
                               if (msg.media?.[0]?.url) {
-                                setSelectedImage(msg.media[0].url);
+                                setViewingImage(msg.media[0].url);
                               }
                             }}
                           >
@@ -285,7 +353,7 @@ export default function ChatWindow({
           {showAttachMenu && (
             <div className="absolute bottom-full left-0 mb-3 bg-[#233138] rounded-xl shadow-xl overflow-hidden min-w-[200px]">
               <div className="py-3">
-                <button className="w-full px-5 py-3 flex items-center gap-4 hover:bg-[#2a3942] transition-colors">
+                <button className="w-full px-5 py-3 flex items-center gap-4 hover:bg-[#2a3942] transition-colors" onClick={handleImageSelect}>
                   <div className="w-11 h-11 rounded-full bg-purple-500 flex items-center justify-center flex-shrink-0">
                     <ImageIcon className="w-5 h-5 text-white" />
                   </div>
@@ -327,7 +395,7 @@ export default function ChatWindow({
           />
         </div>
 
-        {message.trim() ? (
+        {message.trim() || selectedImage ? (
           <button
             onClick={handleSend}
             disabled={sending}
@@ -342,17 +410,55 @@ export default function ChatWindow({
         )}
       </div>
 
-      {/* Image Modal */}
+      {/* Hidden file input */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        onChange={handleFileChange}
+        className="hidden"
+      />
+
+      {/* Image Preview */}
       {selectedImage && (
+        <div className="px-5 md:px-6 lg:px-8 py-3 bg-[#202c33] border-t border-[#2a3942]">
+          <div className="flex items-center gap-3">
+            <div className="relative">
+              <img
+                src={selectedImage}
+                alt="Selected image"
+                className="w-16 h-16 object-cover rounded-lg"
+              />
+              <button
+                onClick={handleRemoveImage}
+                className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 hover:bg-red-600 rounded-full flex items-center justify-center transition-colors"
+              >
+                <X className="w-4 h-4 text-white" />
+              </button>
+            </div>
+            <div className="flex-1">
+              <p className="text-[#e9edef] text-sm">Image selected</p>
+              <p className="text-[#8696a0] text-xs">
+                {selectedImageFile?.name} ({(selectedImageFile?.size || 0) / 1024 / 1024 < 1
+                  ? `${Math.round((selectedImageFile?.size || 0) / 1024)} KB`
+                  : `${((selectedImageFile?.size || 0) / 1024 / 1024).toFixed(1)} MB`})
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Image Modal */}
+      {viewingImage && (
         <div className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4 animate-in fade-in duration-200">
           <button
-            onClick={() => setSelectedImage(null)}
+            onClick={() => setViewingImage(null)}
             className="absolute top-4 right-4 p-2 bg-black/50 hover:bg-black/70 rounded-full text-white transition-colors"
           >
             <X className="w-6 h-6" />
           </button>
           <img
-            src={selectedImage}
+            src={viewingImage}
             alt="Full size"
             className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
           />

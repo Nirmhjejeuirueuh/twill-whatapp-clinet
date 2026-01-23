@@ -361,9 +361,16 @@ export default function WhatsAppClient() {
 
         if (data.type === 'new_message') {
           const newMessage: Message = data.message;
-          console.log('📨 New message from SSE:', newMessage.sid, 'from:', newMessage.from);
-          console.log('🔄 Triggering full message refresh from API...');
-          fetchMessages();
+          console.log('📨 New message from SSE:', newMessage.sid, 'from:', newMessage.from, 'direction:', newMessage.direction);
+
+          // Only trigger full refresh for inbound messages
+          // Outbound messages are already added immediately when sent
+          if (newMessage.direction === 'inbound') {
+            console.log('🔄 Triggering full message refresh from API (inbound message)...');
+            fetchMessages();
+          } else {
+            console.log('📤 Outbound message confirmation received, skipping refresh');
+          }
         }
       } catch (error) {
         console.error('❌ Error processing SSE message:', error);
