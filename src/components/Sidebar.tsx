@@ -25,6 +25,9 @@ interface SidebarProps {
   whatsappNumber: string;
   onLoadMoreConversations?: () => Promise<void>;
   isLoadingMoreConversations?: boolean;
+  onStartLazyLoading?: () => void;
+  onStopLazyLoading?: () => void;
+  isLazyLoadingActive?: boolean;
 }
 
 export default function Sidebar({
@@ -36,6 +39,9 @@ export default function Sidebar({
   whatsappNumber,
   onLoadMoreConversations,
   isLoadingMoreConversations = false,
+  onStartLazyLoading,
+  onStopLazyLoading,
+  isLazyLoadingActive = false,
 }: SidebarProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<'all' | 'unread' | 'groups'>('all');
@@ -108,7 +114,7 @@ export default function Sidebar({
   };
 
   const handleScroll = () => {
-    if (!conversationsContainerRef.current || !onLoadMoreConversations || isLoadingMoreConversations) return;
+    if (!conversationsContainerRef.current) return;
 
     // Clear existing timeout
     if (scrollTimeout) {
@@ -118,9 +124,24 @@ export default function Sidebar({
     // Set new timeout to debounce scroll events
     const timeout = setTimeout(() => {
       const { scrollTop, scrollHeight, clientHeight } = conversationsContainerRef.current!;
+      
+      // Check if near top for lazy loading (loading older messages)
+      const isNearTop = scrollTop < 100; // Within 100px of the top
+      
+      if (onStartLazyLoading && onStopLazyLoading) {
+        if (isNearTop && !isLazyLoadingActive) {
+          console.log('📜 User scrolled near top of conversation list - starting lazy loading');
+          onStartLazyLoading();
+        } else if (!isNearTop && isLazyLoadingActive) {
+          console.log('📜 User scrolled away from top of conversation list - stopping lazy loading');
+          onStopLazyLoading();
+        }
+      }
+
+      // Check if near bottom for loading more conversations
       const isNearBottom = scrollTop + clientHeight >= scrollHeight - 100; // 100px threshold
 
-      if (isNearBottom && onLoadMoreConversations) {
+      if (isNearBottom && onLoadMoreConversations && !isLoadingMoreConversations) {
         onLoadMoreConversations();
       }
     }, 300); // 300ms debounce

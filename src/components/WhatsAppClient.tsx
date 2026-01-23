@@ -88,6 +88,8 @@ export default function WhatsAppClient() {
   const [newChatOpen, setNewChatOpen] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
   const [loadedUntil, setLoadedUntil] = useState<Date | null>(null);
+  const [lazyLoadingActive, setLazyLoadingActive] = useState(false);
+  const [lazyLoadConversation, setLazyLoadConversation] = useState<Conversation | null>(null);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [lastLoadTime, setLastLoadTime] = useState<number>(0);
   const initialLoadDone = useRef<string>('');
@@ -341,52 +343,72 @@ export default function WhatsAppClient() {
 
   const conversationsRef = useRef<Conversation[]>([]);
 
-  // Keep ref in sync with conversations state
+  // Control lazy loading polling
+  const startLazyLoading = useCallback((conversation: Conversation) => {
+    if (lazyLoadConversation?.phoneNumber !== conversation.phoneNumber) {
+      console.log('🔄 Starting lazy loading for conversation:', conversation.phoneNumber);
+      setLazyLoadConversation(conversation);
+      setLazyLoadingActive(true);
+    }
+  }, [lazyLoadConversation]);
+
+  const stopLazyLoading = useCallback(() => {
+    if (lazyLoadingActive) {
+      console.log('🔄 Stopping lazy loading');
+      setLazyLoadingActive(false);
+      setLazyLoadConversation(null);
+    }
+  }, [lazyLoadingActive]);
+
+  // Poll for new messages every 15 seconds (only for last hour, merge with existing)
   useEffect(() => {
-    conversationsRef.current = conversations;
-  }, [conversations]);
+    if (!config.accountSid || !config.authToken || !config.whatsappNumber) return;
 
-  // Listen for SSE updates (webhook messages)
-  useEffect(() => {
-    if (!config.whatsappNumber) return;
+    console.log('🔄 Starting 15-second polling for new messages (last hour only, merging)');
 
-    console.log('📡 Connecting to SSE for real-time updates');
-
-    const eventSource = new EventSource('/api/sse');
-
-    eventSource.onmessage = (event) => {
+    const pollInterval = setInterval(async () => {
       try {
-        const data = JSON.parse(event.data);
-        console.log('📡 SSE message received:', data.type);
+        // Only fetch messages from the last hour to avoid fetching everything
+        const oneHourAgo = new Date();
+        oneHourAgo.setHours(oneHourAgo.getHours() - 1);
+        const now = new Date();
 
-        if (data.type === 'new_message') {
-          const newMessage: Message = data.message;
-          console.log('📨 New message from SSE:', newMessage.sid, 'from:', newMessage.from, 'direction:', newMessage.direction);
-
-          // Only trigger full refresh for inbound messages
-          // Outbound messages are already added immediately when sent
-          if (newMessage.direction === 'inbound') {
-            console.log('🔄 Triggering full message refresh from API (inbound message)...');
-            fetchMessages();
-          } else {
-            console.log('📤 Outbound message confirmation received, skipping refresh');
-          }
-        }
+        console.log('🔄 Polling for messages from last hour (merging)...');
+        await fetchMessages(config, oneHourAgo.toISOString(), now.toISOString(), true); // isAppend = true to merge
       } catch (error) {
-        console.error('❌ Error processing SSE message:', error);
+        console.error('❌ Error during message polling:', error);
       }
-    };
+    }, 15000); // Poll every 15 seconds
 
-    eventSource.onerror = (error) => {
-      console.error('❌ SSE connection error:', error);
-    };
-
-    // Cleanup on unmount
+    // Cleanup interval on unmount or config change
     return () => {
-      console.log('📡 Disconnecting SSE');
-      eventSource.close();
+      console.log('🔄 Stopping message polling');
+      clearInterval(pollInterval);
     };
-  }, [config.whatsappNumber, selectedConversation]);
+  }, [config.accountSid, config.authToken, config.whatsappNumber, fetchMessages]);
+
+  // Separate lazy loading polling for when user scrolls down (independent of main polling)
+  useEffect(() => {
+    if (!lazyLoadingActive || !lazyLoadConversation || !loadedUntil) return;
+
+    console.log('🔄 Starting lazy loading polling for conversation:', lazyLoadConversation.phoneNumber);
+
+    const lazyPollInterval = setInterval(async () => {
+      try {
+        console.log('🔄 Lazy loading polling - fetching older messages...');
+        await loadMoreMessages();
+      } catch (error) {
+        console.error('❌ Error during lazy loading polling:', error);
+        setLazyLoadingActive(false); // Stop polling on error
+      }
+    }, 10000); // Poll every 10 seconds for lazy loading
+
+    // Cleanup interval
+    return () => {
+      console.log('🔄 Stopping lazy loading polling');
+      clearInterval(lazyPollInterval);
+    };
+  }, [lazyLoadingActive, lazyLoadConversation, loadedUntil, loadMoreMessages]);
 
   // Send message
   const handleSendMessage = async (body: string) => {
@@ -451,6 +473,22 @@ export default function WhatsAppClient() {
         }
         return null;
       });
+
+      // If message contains media (image), wait 1 second and fetch updated conversation
+      if (sentMessage.media && sentMessage.media.length > 0) {
+        console.log('📸 Image message sent - waiting 1 second then fetching updated conversation...');
+        setTimeout(async () => {
+          try {
+            console.log('🔄 Fetching updated conversation with image data...');
+            const oneHourAgo = new Date();
+            oneHourAgo.setHours(oneHourAgo.getHours() - 1);
+            const now = new Date();
+            await fetchMessages(config, oneHourAgo.toISOString(), now.toISOString(), true);
+          } catch (error) {
+            console.error('❌ Failed to fetch updated conversation after image send:', error);
+          }
+        }, 1000); // Wait 1 second
+      }
 
       // Note: No need to refresh messages - webhooks will handle incoming updates
     } catch (err) {
@@ -564,6 +602,9 @@ export default function WhatsAppClient() {
           whatsappNumber={config.whatsappNumber}
           onLoadMoreConversations={loadMoreMessages}
           isLoadingMoreConversations={isLoadingMore}
+          onStartLazyLoading={() => selectedConversation && startLazyLoading(selectedConversation)}
+          onStopLazyLoading={stopLazyLoading}
+          isLazyLoadingActive={lazyLoadingActive && lazyLoadConversation?.phoneNumber === selectedConversation?.phoneNumber}
         />
 
         {/* Chat Area */}
